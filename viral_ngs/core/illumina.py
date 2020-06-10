@@ -1062,6 +1062,8 @@ __commands__.append(('extract_fc_metadata', parser_extract_fc_metadata))
 def full_parser():
     return util.cmd.make_parser(__commands__, __doc__)
 
+def __main__():
+    return util.cmd.main_argparse(__commands__, __doc__)
 
 if __name__ == '__main__':
-    util.cmd.main_argparse(__commands__, __doc__)
+    __main__()
