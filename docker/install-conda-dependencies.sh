@@ -28,6 +28,14 @@ CONDA_CHANNEL_STRING="--override-channels -c broad-viral -c conda-forge -c bioco
 # similar to travis_wait, but with output
 #   see: 
 #     https://docs.travis-ci.com/user/common-build-problems/#build-times-out-because-no-output-was-received
+
+# Work round bug in travis xcode image described at
+# https://github.com/direnv/direnv/issues/210
+shell_session_update() { :; }
+unset -f cd
+unset -f pushd
+unset -f popd
+
 function start_keepalive {
     if [ -n "$KEEPALIVE_PID" ]; then
         return
