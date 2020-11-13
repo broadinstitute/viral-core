@@ -31,38 +31,38 @@ CONDA_CHANNEL_STRING="--override-channels -c broad-viral -c conda-forge -c bioco
 
 # Work round bug in travis xcode image described at
 # https://github.com/direnv/direnv/issues/210
-# shell_session_update() { :; }
-# unset -f cd
-# unset -f pushd
-# unset -f popd
+shell_session_update() { :; }
+unset -f cd
+unset -f pushd
+unset -f popd
 
-# function start_keepalive {
-#     if [ -n "$KEEPALIVE_PID" ]; then
-#         return
-#     fi
+function start_keepalive {
+    if [ -n "$KEEPALIVE_PID" ]; then
+        return
+    fi
 
-#     >&2 echo "Running..."
-#     # Start a process that runs as a keep-alive
-#     # to avoid travis quitting if there is no output
-#     (while true; do
-#         sleep 120
-#         >&2 echo "Still running..."
-#     done) &
-#     KEEPALIVE_PID=$!
-#     disown
-# }
+    >&2 echo "Running..."
+    # Start a process that runs as a keep-alive
+    # to avoid travis quitting if there is no output
+    (while true; do
+        sleep 120
+        >&2 echo "Still running..."
+    done) &
+    KEEPALIVE_PID=$!
+    disown
+}
 
-# function stop_keepalive {
-#     if [ ! -n "$KEEPALIVE_PID" ]; then
-#         return
-#     fi
+function stop_keepalive {
+    if [ ! -n "$KEEPALIVE_PID" ]; then
+        return
+    fi
 
-#     kill $KEEPALIVE_PID
-#     unset KEEPALIVE_PID
+    kill $KEEPALIVE_PID
+    unset KEEPALIVE_PID
 
-#     >&2 echo "Done."
-# }
-# trap stop_keepalive EXIT SIGINT SIGQUIT SIGTERM
+    >&2 echo "Done."
+}
+trap stop_keepalive EXIT SIGINT SIGQUIT SIGTERM
 
 # setup/install viral-ngs directory tree and conda dependencies
 sync
@@ -74,10 +74,10 @@ done
 
 # run conda install with keepalive subshell process running in background
 # to keep travis build going. Enforce a hard timeout via timeout GNU coreutil
-#start_keepalive
+start_keepalive
 #timeout $CONDA_INSTALL_TIMEOUT conda install -y -q $CONDA_CHANNEL_STRING -p "${CONDA_PREFIX}" $REQUIREMENTS
-conda install -y -q $CONDA_CHANNEL_STRING -p "${CONDA_PREFIX}" $REQUIREMENTS
-#stop_keepalive
+mamba install -y -q $CONDA_CHANNEL_STRING -p "${CONDA_PREFIX}" $REQUIREMENTS
+stop_keepalive
 
 # clean up
 conda clean -y --all
