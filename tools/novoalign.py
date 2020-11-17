@@ -172,7 +172,11 @@ class NovoalignTool(tools.Tool):
         _log.info("novoalign on {} ({}B), read group {}".format(one_rg_inBam, os.path.getsize(one_rg_inBam), rgid))
         tmp_sam = util.file.mkstempfname('.novoalign.sam')
         cmd = [self.install_and_get_path(), '-f', one_rg_inBam] + list(map(str, options))
-        cmd = cmd + ['-F', 'BAM', '-d', self._fasta_to_idx_name(refFasta), '-o', 'SAM']
+        # "'-F', 'BAM', 'RX,QX'" preserves UMI RX and QX tags if present
+        # see: http://www.novocraft.com/userfiles/file/Novocraft.pdf
+        #      https://samtools.github.io/hts-specs/SAMtags.pdf
+        #      https://samtools.github.io/hts-specs/SAMv1.pdf
+        cmd = cmd + ['-F', 'BAM', 'RX,QX', '-d', self._fasta_to_idx_name(refFasta), '-o', 'SAM']
         _log.debug(' '.join(cmd))
         with open(tmp_sam, 'wt') as outf:
             util.misc.run_and_save(cmd, outf=outf)

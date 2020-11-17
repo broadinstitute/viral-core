@@ -430,7 +430,7 @@ def count_and_sort_barcodes(barcodes_dir, outSummary, truncateToLength=None, inc
 
         illumina_reference = IlluminaIndexReference()
 
-        log.info("Number of barcodes seen %s",reduce_db.get_num_IDS())
+        log.info("Number of barcodes seen %s",reduce_db.get_num_IDs())
 
         # write the barcodes and their corresponding counts
         with open(outSummary, 'w') as tsvfile:

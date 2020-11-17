@@ -644,11 +644,6 @@ def write_fasta_with_sanitized_ids(fasta_in, out_filepath):
         for record in SeqIO.parse(fasta_in, "fasta"):
             record.id=sanitize_id_for_sam_rname(record.id)
             fasta_out.write_record(record)
-    print("out_filepath",out_filepath)
-    print("os.path.dirname(out_filepath)",os.path.dirname(out_filepath))
-    print("ls -lah")
-    for line in subprocess.check_output(["ls","-lah",os.path.dirname(out_filepath)]).decode("utf-8").split("\n"):
-        print(line)
     return out_filepath
 
 @contextlib.contextmanager
@@ -1201,7 +1196,46 @@ class CountDB(DBConnection):
         for row in self.cur:
             yield row or None
 
-    def get_num_IDS(self):
+    def get_num_IDs(self):
         return self.cur.execute("SELECT COUNT() FROM counts").fetchone()[0]
     
+class UMI_DB(DBConnection):
+    """
+        This is a simple SQLite class for storing short
+        sequences associated with given IDs. Useful for associating
+        UMIs with read IDs in a quick disk-backed data store.
+    """
+    def __init__(self, db_file=None):
+        DBConnection.__init__(self,db_file=db_file)
 
+    def start(self):
+        DBConnection.start(self)
+        self.cur.execute("""CREATE TABLE IF NOT EXISTS seqs (
+            id TEXT PRIMARY KEY,
+            seq TEXT,
+            seqqual TEXT)""")
+
+    def ID_exists(self, idval):
+        self.cur.execute("SELECT EXISTS(SELECT 1 FROM seqs WHERE id=? LIMIT 1)", [idval])
+        row_exists, = self.cur.fetchone()
+        yield row_exists or False
+
+    def get_seq_for_ID(self, idval):
+        self.cur.execute("SELECT seq,seqqual FROM seqs WHERE id=?", (idval,))
+        row = self.cur.fetchone()
+        return row or None
+
+    def get_seq_for_multiple_IDs(self, idvals):
+        self.cur.execute("SELECT id,seq,seqqual from seqs WHERE id IN (%s)" % ','.join('?'*len(idvals)), *idvals)
+        for row in self.cur.fetchone():
+            yield row or None
+
+    def set_seq_for_ID(self, idval, seq, seqqual=None):
+        with self.conn:
+            # make use of UPSERT to insert or update: https://www.sqlite.org/lang_UPSERT.html
+            self.cur.execute("INSERT INTO seqs(id,seq,seqqual) VALUES (?,?,?) ON CONFLICT(id) DO UPDATE SET seq=?, seqqual=?", (idval, seq, seqqual, seq, seqqual))
+
+    def get_num_IDs(self):
+        self.cur.execute("SELECT COUNT() FROM seqs")
+        row, = self.cur.fetchone()
+        return int(row)

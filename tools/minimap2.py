@@ -204,12 +204,22 @@ class Minimap2(tools.Tool):
         samtools = tools.samtools.SamtoolsTool()
 
         with util.file.tempfname('.aligned.sam') as aln_sam:
-            fastq_pipe = samtools.bam2fq_pipe(inReads)
-            options.extend(('-a', refDb, '-', '-o', aln_sam))
-            self.execute(options, stdin=fastq_pipe.stdout)
-            if fastq_pipe.wait():
-                raise subprocess.CalledProcessError(fastq_pipe.returncode, "samtools.bam2fq_pipe() for {}".format(inReads))
-            samtools.sort(aln_sam, outAlign, threads=threads)
+            with util.file.tempfname('.aligned.umi.sam') as aln_umi_sam:
+                with util.file.tempfname('.umi.db') as umi_db:
+
+                    umi_count = samtools.dump_umis(umi_db, inReads)
+
+                    fastq_pipe = samtools.bam2fq_pipe(inReads)
+                    options.extend(('-a', refDb, '-', '-o', aln_sam))
+                    self.execute(options, stdin=fastq_pipe.stdout)
+                    if fastq_pipe.wait():
+                        raise subprocess.CalledProcessError(fastq_pipe.returncode, "samtools.bam2fq_pipe() for {}".format(inReads))
+                    
+                    if umi_count>0:
+                        samtools.annotate_with_umis(umi_db, aln_sam, aln_umi_sam)
+                    else:
+                        aln_umi_sam = aln_sam
+                    samtools.sort(aln_umi_sam, outAlign, threads=threads)
 
         # cannot index sam files; only do so if a bam/cram is desired
         if (outAlign.endswith(".bam") or outAlign.endswith(".cram")):

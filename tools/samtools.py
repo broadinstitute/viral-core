@@ -132,6 +132,76 @@ class SamtoolsTool(tools.Tool):
         args.extend(('-o', outFile, inFile))
         self.execute('sort', args)
 
+    def dump_umis(self, umi_sqlitedb, in_bam):
+        """
+            This function dumps the UMI sequences (as stored in the RX tag) 
+            as well as their quality scores (sored by the QX tag)
+            to a SQLite database with read ID (query_name) as the primary key.
+        """
+        umis_stored = 0
+        with util.file.UMI_DB(db_file=umi_sqlitedb) as umidb:
+            with pysam.AlignmentFile(in_bam, 'rb', check_sq=False) as inb:
+                for read in inb:
+                    try:
+                        read_id = read.query_name
+                        read_umiseq = read.get_tag("RX")
+
+                        read_umiseqqual = None
+                        try:
+                            read_umiseqqual = read.get_tag("QX")
+                        except:
+                            # if there is not a QX quality tag
+                            # that's ok—simply continue
+                            pass
+
+                        umidb.set_seq_for_ID(read_id, read_umiseq, read_umiseqqual)
+
+                    except KeyError as exc:
+                        # if the read does not have an RX tag, continue to the next one
+                        continue
+            
+            umis_stored = umidb.get_num_IDs()
+
+        # return number of UMIs stored
+        # useful for determining whether or not to re-annotate later
+        return umis_stored
+
+    def annotate_with_umis(self, umi_sqlitedb, in_bam, out_bam):
+        """
+            This function is intended to reassociate bam reads with
+            their UMI sequences (as stored in the RX tag) based on
+            read ID (query_name).
+            It relies on an SQLite database produced by dump_umis().
+        """
+
+        with pysam.AlignmentFile(in_bam, 'rb', check_sq=False) as inb:
+            with pysam.AlignmentFile(out_bam, 'wb', header=inb.header) as outf:
+                # process the reads individually and write them
+                # updated if there is a seq to set
+                # https://pysam.readthedocs.io/en/latest/api.html
+                # https://samtools.github.io/hts-specs/SAMv1.pdf
+                # https://samtools.github.io/hts-specs/SAMtags.pdf
+                with util.file.UMI_DB(db_file=umi_sqlitedb) as umidb:
+
+                    for read in inb:
+                        read_id = read.query_name
+
+                        umiinfo_found = umidb.get_seq_for_ID(read_id)
+
+                        read_umiseq = None
+                        read_umiseqqual = None
+                        if umiinfo_found is not None:
+                            read_umiseq,read_umiseqqual, = umiinfo_found
+
+                        if read_umiseq is None:
+                            outf.write(read)
+                        else:
+                            read.set_tag("RX", read_umiseq, value_type="Z")
+                            if read_umiseqqual is not None:
+                                read.set_tag("QX", read_umiseqqual, value_type="Z")
+                            outf.write(read)
+                        
+
     def merge(self, inFiles, outFile, options=None):
         "Merge a list of inFiles to create outFile."
         options = options or ['-f']

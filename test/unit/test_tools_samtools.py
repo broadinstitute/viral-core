@@ -6,7 +6,9 @@ import unittest
 import os, os.path
 import tempfile
 import shutil
+
 import Bio.SeqIO, Bio.SeqRecord, Bio.Seq
+
 import util
 import util.file
 import tools

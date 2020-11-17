@@ -213,22 +213,31 @@ class Bwa(tools.Tool):
 
         samtools = tools.samtools.SamtoolsTool()
 
-        aln_sam = util.file.mkstempfname('.aligned.sam')
-        fastq_pipe = samtools.bam2fq_pipe(inReads)
-        self.execute('mem', options + ['-p', refDb, '-'], stdout=aln_sam, stdin=fastq_pipe.stdout)
+        with util.file.tempfname('.umi.db') as umi_db:
+            umi_count = samtools.dump_umis(umi_db, inReads)
 
-        if fastq_pipe.poll():
-            raise subprocess.CalledProcessError(fastq_pipe.returncode, "samtools.bam2fq_pipe() for {}".format(inReads))
+            aln_sam = util.file.mkstempfname('.aligned.sam')
+            aln_umi_sam = util.file.mkstempfname('.aligned.umi.sam')
+            fastq_pipe = samtools.bam2fq_pipe(inReads)
+            self.execute('mem', options + ['-p', refDb, '-'], stdout=aln_sam, stdin=fastq_pipe.stdout)
+
+            if fastq_pipe.poll():
+                raise subprocess.CalledProcessError(fastq_pipe.returncode, "samtools.bam2fq_pipe() for {}".format(inReads))
+
+            if umi_count>0:
+                samtools.annotate_with_umis(umi_db, aln_sam, aln_umi_sam)
+                os.unlink(aln_sam)
+            else:
+                aln_umi_sam = aln_sam
 
         if min_score_to_filter:
             # Filter reads in the alignment based on on their alignment score
             aln_sam_filtered = util.file.mkstempfname('.sam')
-            self.filter_sam_on_alignment_score(aln_sam, aln_sam_filtered,
+            self.filter_sam_on_alignment_score(aln_umi_sam, aln_sam_filtered,
                                                min_score_to_filter, options, invert_filter=invert_filter)
-            os.unlink(aln_sam)
+            os.unlink(aln_umi_sam)
         else:
-            aln_sam_filtered = aln_sam
-
+            aln_sam_filtered = aln_umi_sam
  
         samtools.sort(aln_sam_filtered, outAlign, threads=threads)
         os.unlink(aln_sam_filtered)
