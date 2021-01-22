@@ -1676,14 +1676,15 @@ class IlluminaBarcodeHelper(object):
             raise UncertainSamplesheetError("Only {:.0%} of reads were assigned to barcode pairs listed in the samplesheet. Check the sample sheet for errors.".format(fraction_assigned))
 
         num_samples = len(self.sample_to_read_counts)
-        log_obs_fractions_of_pool = [ -math.log(float(x)/float(total_read_count),10) if x>0 
-                                        else 0 
+        assert number_of_negative_controls<num_samples, "number_of_negative_controls must be < num_samples"
+
+        log_obs_fractions_of_pool = [ float(x)/float(total_read_count) if x>0 
+                                        else 0
                                         for x in 
-                                        list(self.sample_to_read_counts.values())+[self.unassigned_read_count]
+                                        list(self.sample_to_read_counts.values())
                                     ]
 
-        log_exp_fractions_of_pool = [-math.log(1.0/float(num_samples-number_of_negative_controls),10)]*num_samples + [0]
-
+        log_exp_fractions_of_pool = [1.0/float(num_samples-number_of_negative_controls)]*num_samples
         residuals = [obs-exp for (obs,exp) in zip(log_obs_fractions_of_pool,log_exp_fractions_of_pool)]
         resid_stdev = self.stddevp(residuals) #essentially RMSE
         resid_mean = self.mean(residuals) # mean error
@@ -1692,8 +1693,9 @@ class IlluminaBarcodeHelper(object):
         # modifed zscore using median to reduce influence of outliers
         zscores_residual_relative_to_median = [float(1.0 * (x-resid_median))/resid_stdev for x in residuals]
         # only consider LOW variance
-        indices_of_outliers = [i for i,v in enumerate(zscores_residual_relative_to_median[:-1]) if v > outlier_threshold]
-        indices_of_outliers += [i for i,v in enumerate(list(self.sample_to_read_counts.values())[:-1]) if v==0]
+        indices_of_outliers = [i for i,v in enumerate(zscores_residual_relative_to_median) if v < -outlier_threshold]
+        #indices_of_outliers += [i for i,v in enumerate(list(self.sample_to_read_counts.values())) if v==0]
+        
         names_of_outlier_samples = [(list(self.sample_to_read_counts.keys()))[i] for i in indices_of_outliers]
         log.warning("outlier samples")
         for s in names_of_outlier_samples:
@@ -1760,7 +1762,8 @@ class IlluminaBarcodeHelper(object):
         novel_barcode_pairs = []
 
         for barcode_pair in self.barcodes_seen.keys():
-            if barcode_pair not in self.sample_to_barcodes.values():
+            barcode = tuple((b for b in barcode_pair if b is not None))
+            if barcode not in self.sample_to_barcodes.values():
                 novel_barcode_pairs.append(barcode_pair)
             else:
                 del barcodes_seen_novel[barcode_pair]
@@ -1772,7 +1775,7 @@ class IlluminaBarcodeHelper(object):
         if is_dual_index:
             out_dict["expected_barcode_2"]           = self.sample_to_barcodes[sample_name][1]
             out_dict["expected_barcode_2_name"]      = ",".join(self.index_reference.guess_index(self.sample_to_barcodes[sample_name][1]))
-            out_dict["expected_barcodes_read_count"] = self.sample_to_read_counts[sample_name]
+        out_dict["expected_barcodes_read_count"] = self.sample_to_read_counts[sample_name]
 
         claimed_barcodes = self.sample_to_barcodes[sample_name]
 
@@ -1780,20 +1783,29 @@ class IlluminaBarcodeHelper(object):
         putative_match = None
 
         if is_dual_index:
-        # barcodes_seen_novel is sorted by read count, desc
+            # barcodes_seen_novel is sorted by read count, desc
             for (barcode_pair,count) in barcodes_seen_novel.items():
                 if barcode_pair[0]==claimed_barcodes[0] or barcode_pair[1]==claimed_barcodes[1]:
                     found_partial_match=True
                     putative_match = barcode_pair
                     out_dict["match_type"] = "one_barcode_match"
                     break
-
-            # find index of match to help determine if it is a reasonable guess
-            idx_of_match = -1
-            for (idx,(barcode_pair,count)) in enumerate(self.barcodes_seen.items()):
-                if barcode_pair==putative_match:
-                    idx_of_match=idx
+        else:
+            # barcodes_seen_novel is sorted by read count, desc
+            for (barcode_pair,count) in barcodes_seen_novel.items():
+                # get barcode with greatest count that isn't the one we're looking for
+                if barcode_pair[0]!=claimed_barcodes[0]:
+                    found_partial_match=True
+                    putative_match = barcode_pair
+                    out_dict["match_type"] = "one_barcode_match"
                     break
+
+        # find index of match to help determine if it is a reasonable guess
+        idx_of_match = -1
+        for (idx,(barcode_pair,count)) in enumerate(self.barcodes_seen.items()):
+            if barcode_pair==putative_match:
+                idx_of_match=idx
+                break
 
         # if the one-barcode match is too far down the list of barcode pairs seen
         # (farther down than 1.5x the number of samples)
@@ -1801,15 +1813,16 @@ class IlluminaBarcodeHelper(object):
             for (barcode_pair,count) in barcodes_seen_novel.items():
                 # return the most pair with greatest count
                 putative_match = barcode_pair
-                out_dict["match_type"] = "high_count_novel_pair"
+                out_dict["match_type"] = "high_count_novel_barcode"
                 break
         
         out_dict["guessed_barcode_1"]           = "unknown"
         out_dict["guessed_barcode_1_name"]      = "unknown"
+        out_dict["guessed_barcodes_read_count"] = 0
         if is_dual_index and (putative_match is not None and putative_match[1] != None):
             out_dict["guessed_barcode_2"]           = "unknown"
             out_dict["guessed_barcode_2_name"]      = "unknown"
-            out_dict["guessed_barcodes_read_count"] = "0"
+        
 
         if putative_match is not None and putative_match[0]!=None:
             out_dict["guessed_barcode_1"]           = putative_match[0]
@@ -1868,7 +1881,7 @@ class IlluminaBarcodeHelper(object):
                 log.warning("Ambiguous! Multiple samples corresponding to guessed barcodes %s:", barcode_pair)
                 for sample in samples:
                     log.warning("\t%s expected (%s,%s); -> Guessed (%s,%s); match type: %s", sample["sample_name"], sample["expected_barcode_1"],sample.get("expected_barcode_2",""),sample["guessed_barcode_1"],sample.get("guessed_barcode_2",""),sample["match_type"])
-    
+
                     final_guesses.append(clear_guessed_fields(sample, "alternative_indices_uncertain"))
             else:
                 for sample in samples:
