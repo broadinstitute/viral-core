@@ -538,7 +538,7 @@ def parser_guess_barcodes(parser=argparse.ArgumentParser()):
     parser.add_argument('--outlier_threshold', 
                         help='threshold of how far from unbalanced a sample must be to be considered an outlier.',
                         type=float,
-                        default=0.675)
+                        default=0.775)
     parser.add_argument('--expected_assigned_fraction', 
                         help='The fraction of reads expected to be assigned. An exception is raised if fewer than this fraction are assigned.',
                         type=float,

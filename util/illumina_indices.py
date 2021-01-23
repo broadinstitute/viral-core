@@ -1644,7 +1644,7 @@ class IlluminaBarcodeHelper(object):
             if "Barcode2" in row and row["Barcode2"]:
                 self.barcode_name_map[row["Barcode2"]] = row["Likely_Index_Names2"]
 
-    def outlier_barcodes(self, outlier_threshold=0.675, expected_assigned_fraction=0.7, number_of_negative_controls=1):
+    def outlier_barcodes(self, outlier_threshold=0.775, expected_assigned_fraction=0.7, number_of_negative_controls=1):
         """
             This identifies samples listed in the Picard metrics (derived from 
             the sample sheet) that are believed to have an anomalously low 
@@ -1664,10 +1664,11 @@ class IlluminaBarcodeHelper(object):
                 The ASQC Basic References in Quality Control: Statistical Techniques
 
             Params:
-            outlier_threshold (float): 0.675 corresponds to 75th percentile
+            outlier_threshold (float): 0.675, corresponds to 75th percentile
             expected_assigned_fraction (float): fraction of reads assigned to samples
             number_of_negative_controls (int): the number of samples in the pool expected to have zero reads
         """
+        ##log.debug(f"outlier_threshold {outlier_threshold}")
         assigned_read_count = sum(self.sample_to_read_counts.values())
         total_read_count = assigned_read_count+self.unassigned_read_count
         fraction_assigned = float(assigned_read_count)/float(total_read_count)
@@ -1678,24 +1679,31 @@ class IlluminaBarcodeHelper(object):
         num_samples = len(self.sample_to_read_counts)
         assert number_of_negative_controls<num_samples, "number_of_negative_controls must be < num_samples"
 
-        log_obs_fractions_of_pool = [ float(x)/float(total_read_count) if x>0 
+        log_obs_fractions_of_pool = [ -math.log(float(x)/float(total_read_count),10) if x>0 
                                         else 0
                                         for x in 
                                         list(self.sample_to_read_counts.values())
                                     ]
-
-        log_exp_fractions_of_pool = [1.0/float(num_samples-number_of_negative_controls)]*num_samples
+        ##log.debug(f"log_obs_fractions_of_pool {log_obs_fractions_of_pool}")
+        log_exp_fractions_of_pool = [-math.log(1.0/float(num_samples-number_of_negative_controls),10)]*num_samples
+        ##log.warning(f"log_exp_fractions_of_pool {log_exp_fractions_of_pool}")
         residuals = [obs-exp for (obs,exp) in zip(log_obs_fractions_of_pool,log_exp_fractions_of_pool)]
         resid_stdev = self.stddevp(residuals) #essentially RMSE
         resid_mean = self.mean(residuals) # mean error
         resid_median = self.median(residuals) # median error
 
+        ##log.debug(f"residuals {residuals}")
+        ##log.debug(f"resid_stdev {resid_stdev}")
+        ##log.debug(f"resid_mean {resid_mean}")
+        ##log.debug(f"resid_median {resid_median}")
+
         # modifed zscore using median to reduce influence of outliers
         zscores_residual_relative_to_median = [float(1.0 * (x-resid_median))/resid_stdev for x in residuals]
+        ##log.debug(f"zscores_residual_relative_to_median {zscores_residual_relative_to_median}")
         # only consider LOW variance
-        indices_of_outliers = [i for i,v in enumerate(zscores_residual_relative_to_median) if v < -outlier_threshold]
-        #indices_of_outliers += [i for i,v in enumerate(list(self.sample_to_read_counts.values())) if v==0]
-        
+        indices_of_outliers = [i for i,v in enumerate(zscores_residual_relative_to_median) if v > outlier_threshold]
+        indices_of_outliers += [i for i,v in enumerate(list(self.sample_to_read_counts.values())) if v==0]
+        ##log.debug("self.sample_to_read_counts.keys() {}".format(self.sample_to_read_counts.keys()))
         names_of_outlier_samples = [(list(self.sample_to_read_counts.keys()))[i] for i in indices_of_outliers]
         log.warning("outlier samples")
         for s in names_of_outlier_samples:
@@ -1818,7 +1826,7 @@ class IlluminaBarcodeHelper(object):
         
         out_dict["guessed_barcode_1"]           = "unknown"
         out_dict["guessed_barcode_1_name"]      = "unknown"
-        out_dict["guessed_barcodes_read_count"] = 0
+        #out_dict["guessed_barcodes_read_count"] = 0
         if is_dual_index and (putative_match is not None and putative_match[1] != None):
             out_dict["guessed_barcode_2"]           = "unknown"
             out_dict["guessed_barcode_2_name"]      = "unknown"
