@@ -12,6 +12,7 @@ lz4-c=1.8.3
 minimap2>=2.17
 mvicuna=1.0
 novoalign=3.09.04
+openjdk>=11
 parallel>=20190922
 picard-slim>=2.25.0
 pigz=2.4
