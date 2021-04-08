@@ -118,7 +118,7 @@ class TestRunInfo(TestCaseWithTmp):
         self.assertEqual(runinfo.get_machine(), 'M04004')
         self.assertEqual(runinfo.get_read_structure(), '101T8B8B101T')
         self.assertEqual(runinfo.num_reads(), 2)
-        self.assertEqual(runinfo.get_machine_model(), "MiSeq")
+        self.assertEqual(runinfo.get_machine_model(), "Illumina MiSeq")
         self.assertEqual(runinfo.get_flowcell_lane_count(), 1)
 
     def test_hiseq(self):
@@ -130,7 +130,7 @@ class TestRunInfo(TestCaseWithTmp):
         self.assertEqual(runinfo.get_machine(), 'SL-HDF')
         self.assertEqual(runinfo.get_read_structure(), '101T8B8B101T')
         self.assertEqual(runinfo.num_reads(), 2)
-        self.assertEqual(runinfo.get_machine_model(), "HiSeq 2500")
+        self.assertEqual(runinfo.get_machine_model(), "Illumina HiSeq 2500")
         self.assertEqual(runinfo.get_flowcell_lane_count(), 2)
 
     def test_novaseq(self):
@@ -142,7 +142,7 @@ class TestRunInfo(TestCaseWithTmp):
         self.assertEqual(runinfo.get_machine(), 'A00198')
         self.assertEqual(runinfo.get_read_structure(), '101T8B8B101T')
         self.assertEqual(runinfo.num_reads(), 2)
-        self.assertEqual(runinfo.get_machine_model(), "NovaSeq")
+        self.assertEqual(runinfo.get_machine_model(), "Illumina NovaSeq 6000")
         self.assertEqual(runinfo.get_flowcell_lane_count(), 2)
 
 

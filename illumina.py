@@ -835,51 +835,68 @@ class RunInfo(object):
         return total_tile_count
 
     def machine_model_from_tile_count(self):
+        """
+            Return machine name and lane count based on tile count
+            Machine names aim to conform to the NCBI SRA controlled 
+            vocabulary for Illumina sequencers available here:
+              https://www.ncbi.nlm.nih.gov/viewvc/v1/trunk/sra/doc/SRA_1-5/SRA.common.xsd?view=co&content-type=text%2Fplain
+        """
         tc = self.tile_count()
 
         machine=None
         if tc == 2:
             log.info("Detected %s tiles, interpreting as MiSeq nano run.",tc)
-            machine = {"machine":"MiSeq","lane_count":1}
+            machine = {"machine":"Illumina MiSeq","lane_count":1}
         elif tc == 8:
             log.info("Detected %s tiles, interpreting as MiSeq micro run.",tc)
-            machine = {"machine":"MiSeq","lane_count":1}
+            machine = {"machine":"Illumina MiSeq","lane_count":1}
         elif tc == 16:
             log.info("Detected %s tiles, interpreting as iSeq run.",tc)
-            machine = {"machine":"iSeq","lane_count":1}
+            machine = {"machine":"Illumina iSeq 100","lane_count":1}
         elif tc == 28:
             log.info("Detected %s tiles, interpreting as MiSeq run.",tc)
-            machine = {"machine":"MiSeq","lane_count":1}
+            machine = {"machine":"Illumina MiSeq","lane_count":1}
         elif tc == 38:
             log.info("Detected %s tiles, interpreting as MiSeq run.",tc)
-            machine = {"machine":"MiSeq","lane_count":1}
+            machine = {"machine":"Illumina MiSeq","lane_count":1}
         elif tc == 128:
             log.info("Detected %s tiles, interpreting as HiSeq2k run.",tc)
-            machine = {"machine":"HiSeq 2500","lane_count":2}
+            machine = {"machine":"Illumina HiSeq 2500","lane_count":2}
         elif tc == 132:
-            log.info("Detected %s tiles, interpreting as NextSeq (mid-output) run.",tc)
+            # NextSeq P2 kit can be used on either NextSeq 1000 or 2000
+            # so we cannot know which from the tile count alone
+            log.info("Detected %s tiles, interpreting as NextSeq 1000/2000 P2 run.",tc)
             machine = {"machine":"NextSeq 1000/2000","lane_count":1}
         elif tc == 264:
-            log.info("Detected %s tiles, interpreting as NextSeq (mid-output) run.",tc)
-            machine = {"machine":"NextSeq 1000/2000","lane_count":2}
+            log.info("Detected %s tiles, interpreting as NextSeq 2000 P3 run.",tc)
+            machine = {"machine":"NextSeq 2000","lane_count":2}
+        elif tc == 288:
+            # NextSeq 550 is a NextSeq 500 that can also read arrays.
+            # Since we cannot tell them apart based on tile count, we call it the 550
+            log.info("Detected %s tiles, interpreting as NextSeq 550 (mid-output) run.",tc)
+            machine = {"machine":"NextSeq 550","lane_count":4}
         elif tc == 768:
-            log.info("Detected %s tiles, interpreting as HiSeq2k run.",tc)
-            machine = {"machine":"HiSeq 2500","lane_count":8}
+            # HiSeq 2000 and 2500 have the same number of tiles
+            # Defaulting to the newer HiSeq 2500
+            log.info("Detected %s tiles, interpreting as HiSeq2500 run.",tc)
+            machine = {"machine":"Illumina HiSeq 2500","lane_count":8}
         elif tc == 624:
-            log.info("Detected %s tiles, interpreting as NovaSeq run.",tc)
-            machine = {"machine":"NovaSeq","lane_count":2}
+            log.info("Detected %s tiles, interpreting as Illumina NovaSeq 6000 run.",tc)
+            machine = {"machine":"Illumina NovaSeq 6000","lane_count":2}
         elif tc == 864:
-            log.info("Detected %s tiles, interpreting as NextSeq (high-output) run.",tc)
-            machine = {"machine":"NextSeq","lane_count":4}
+            # NextSeq 550 is a NextSeq 500 that can also read arrays.
+            # Since we cannot tell them apart based on tile count, we call it the 550
+            log.info("Detected %s tiles, interpreting as NextSeq 550 (high-output) run.",tc)
+            machine = {"machine":"NextSeq 550","lane_count":4}
         elif tc == 896:
             log.info("Detected %s tiles, interpreting as HiSeq4k run.",tc)
-            machine = {"machine":"HiSeq 4000","lane_count":8}
+            machine = {"machine":"Illumina HiSeq 4000","lane_count":8}
         elif tc == 1408:
-            log.info("Detected %s tiles, interpreting as NovaSeq run.",tc)
-            machine = {"machine":"NovaSeq","lane_count":2}
+            log.info("Detected %s tiles, interpreting as Illumina NovaSeq 6000 run.",tc)
+            machine = {"machine":"Illumina NovaSeq 6000","lane_count":2}
         elif tc == 3744:
-            log.info("Detected %s tiles, interpreting as NovaSeq run.",tc)
-            machine = {"machine":"NovaSeq","lane_count":4}
+            log.info("Detected %s tiles, interpreting as Illumina NovaSeq 6000 run.",tc)
+            machine = {"machine":"Illumina NovaSeq 6000","lane_count":4}
         elif tc > 3744:
             log.info("Tile count: %s tiles (unknown instrument type).",tc)
         return machine
@@ -925,111 +942,133 @@ class RunInfo(object):
         if len(sequencers_by_fcid)==0 and sequencer_by_tile_count is None:
             raise LookupError("Unknown sequencer: %s",fcid)
 
+
+    # Machine names aim to conform to the NCBI SRA controlled 
+    # vocabulary for Illumina sequencers available here:
+    #   https://www.ncbi.nlm.nih.gov/viewvc/v1/trunk/sra/doc/SRA_1-5/SRA.common.xsd?view=co&content-type=text%2Fplain
     flowcell_to_machine_model_and_chemistry = {
         r'[A-Z,0-9]{5}AAXX':{
-            "machine":    "GAIIx",
+            "machine":    "Illumina Genome Analyzer IIx",
             "chemistry":  "All",
             "lane_count":  8,
             "note":       ""
         },
         r'[A-Z,0-9]{5}ABXX':{
-            "machine":    "HiSeq 2000",
+            "machine":    "Illumina HiSeq 2000",
             "chemistry":  "V2 Chemistry",
             "lane_count":  8,
             "note":       ""
         },
         r'[A-Z,0-9]{5}ACXX':{
-            "machine":   "HiSeq 2000",
+            "machine":   "Illumina HiSeq 2000",
             "chemistry": "V3 Chemistry",
             "lane_count": 8,
             "note":       "Also used on transient 2000E"
         },
         r'[A-Z,0-9]{5}(?:ANXX|AN\w\w)':{
-            "machine":    "HiSeq 2500",
+            "machine":    "Illumina HiSeq 2500",
             "chemistry":  "V4 Chemistry",
             "lane_count":  8,
             "note":       "High output"
         },
         r'[A-Z,0-9]{5}(?:ADXX|AD\w\w)':{
-            "machine":    "HiSeq 2500",
+            "machine":    "Illumina HiSeq 2500",
             "chemistry":  "V1 Chemistry",
             "lane_count":  2,
             "note":       "Rapid run"
         },
         r'[A-Z,0-9]{5}AMXX':{
-            "machine":    "HiSeq 2500",
+            "machine":    "Illumina HiSeq 2500",
             "chemistry":  "V2 Chemistry (beta)",
             "lane_count":  2,
             "note":       "Rapid run"
         },
         r'[A-Z,0-9]{5}(?:BCXX|BC\w\w)':{
-            "machine":    "HiSeq 2500",
+            "machine":    "Illumina HiSeq 2500",
             "chemistry":  "V2 Chemistry",
             "lane_count":  2,
             "note":       "Rapid run"
         },
+        # NextSeq 550 is a NextSeq 500 that can also read arrays.
+        # Since we cannot tell them apart based on tile count, we call it the 550
         r'[A-Z,0-9]{5}AFX\w':{
-            "machine":    "NextSeq 500",
+            "machine":    "NextSeq 550",
             "chemistry":  "Mid-Output NextSeq",
             "lane_count":  4,
             "note":       ""
         },
+        # NextSeq 550 is a NextSeq 500 that can also read arrays.
+        # Since we cannot tell them apart based on tile count, we call it the 550
         r'[A-Z,0-9]{5}AGXX':{
-            "machine":    "NextSeq 500",
+            "machine":    "NextSeq 550",
             "chemistry":  "V1 Chemistry",
             "lane_count":  4,
             "note":       "High-output"
         },
+        # NextSeq 550 is a NextSeq 500 that can also read arrays.
+        # Since we cannot tell them apart based on tile count, we call it the 550
         r'[A-Z,0-9]{5}(?:BGXX|BG\w\w)':{
-            "machine":    "NextSeq 500",
+            "machine":    "NextSeq 550",
             "chemistry":  "V2/V2.5 Chemistry",
             "lane_count":  4,
             "note":       "High-output"
         },
+        # r'[A-Z,0-9]{5}(?:AAAC|AAA\w)':{ # suffix not confirmed
+        #     "machine":    "NextSeq 1000/2000",
+        #     "chemistry":  "P2 Chemistry",
+        #     "lane_count":  1,
+        #     "note":       "Mid-output"
+        # },
+        # r'[A-Z,0-9]{5}(?:AAAC|AAA\w)':{ # suffix not confirmed
+        #     "machine":    "NextSeq 2000",
+        #     "chemistry":  "P3 Chemistry",
+        #     "lane_count":  2,
+        #     "note":       "High-output"
+        # },
         r'[A-Z,0-9]{5}(?:BBXX|BB\w\w)':{
-            "machine":    "HiSeq 4000",
-            "chemistry":  "HiSeq 4000",
+            "machine":    "Illumina HiSeq 4000",
+            "chemistry":  "Illumina HiSeq 4000",
             "lane_count":  8,
             "note":       ""
         },
         r'[A-Z,0-9]{5}(?:ALXX:AL\w\w)':{
-            "machine":    "HiSeq X",
+            "machine":    "HiSeq X Ten",
             "chemistry":  "V1/V2.5 Chemistry",
             "lane_count":  8,
             "note":       ""
         },
         r'[A-Z,0-9]{5}(?:CCXX:CC\w\w)':{
-            "machine":    "HiSeq X",
+            "machine":    "HiSeq X Ten",
             "chemistry":  "V2/V2.5 Chemistry",
             "lane_count":  8,
             "note":       ""
         },
         r'[A-Z,0-9]{5}DR\w\w':{
-            "machine":    "NovaSeq",
+            "machine":    "Illumina NovaSeq 6000",
             "chemistry":  "V1 Chemistry",
             "lane_count":  2,
             "note":       "S1/SP"
         },
         r'[A-Z,0-9]{5}DM\w\w':{
-            "machine":    "NovaSeq",
+            "machine":    "Illumina NovaSeq 6000",
             "chemistry":  "V1 Chemistry",
             "lane_count":  2,
             "note":       "S2"
         },
         r'[A-Z,0-9]{5}DS\w\w':{
-            "machine":    "NovaSeq",
+            "machine":    "Illumina NovaSeq 6000",
             "chemistry":  "V1 Chemistry",
             "lane_count":  4,
             "note":       "S4"
         },
         r'BNS417.*':{
-            "machine":    "iSeq",
+            "machine":    "Illumina iSeq 100",
             "chemistry":  "V1",
             "lane_count":  1,
             "note":       "AKA Firefly"
         },
         r'[0-9]{9}-\w{5}':{
-            "machine":    "MiSeq",
+            "machine":    "Illumina MiSeq",
             "chemistry":  "V1/V2/V3 Chemistry",
             "lane_count":  1,
             "note":       ""
