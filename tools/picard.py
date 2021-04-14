@@ -496,11 +496,12 @@ class IlluminaBasecallsToSamTool(PicardTools):
         'num_processors': 0,
         'include_non_pf_reads': False,
         'compression_level': 7,
+        'sort': False
     }
     option_list = (
         'read_structure', 'sequencing_center', 'adapters_to_check', 'platform', 'max_reads_in_ram_per_tile',
         'max_records_in_ram', 'num_processors', 'apply_eamss_filter', 'force_gc', 'first_tile', 'tile_limit',
-        'include_non_pf_reads', 'run_start_date', 'read_group_id', 'compression_level'
+        'include_non_pf_reads', 'run_start_date', 'read_group_id', 'compression_level', 'sort'
     )
 
     # pylint: disable=W0221
