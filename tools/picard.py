@@ -496,7 +496,7 @@ class IlluminaBasecallsToSamTool(PicardTools):
         'num_processors': 0,
         'include_non_pf_reads': False,
         'compression_level': 7,
-        'sort': False
+        'sort': True
     }
     option_list = (
         'read_structure', 'sequencing_center', 'adapters_to_check', 'platform', 'max_reads_in_ram_per_tile',
