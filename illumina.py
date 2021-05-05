@@ -254,6 +254,15 @@ def main_illumina_demux(args):
                 'run_start_date':runinfo.get_rundate_iso(),
                 'read_structure':picardOpts['read_structure'],
                 'indexes':str(samples.indexes),
+                'run_id':runinfo.get_run_id(),
+                'lane':str(args.lane),
+                'flowcell':str(runinfo.get_flowcell()),
+                'lane_count':str(runinfo.get_lane_count()),
+                'surface_count':str(runinfo.get_surface_count()),
+                'swath_count':str(runinfo.get_swath_count()),
+                'tile_count':str(runinfo.get_tile_count()),
+                'total_tile_count':str(runinfo.tile_count()),
+                'sequencer_model':runinfo.get_machine_model(),
                 }, outf, indent=2)
 
     # manually garbage collect to make sure we have as much RAM free as possible
@@ -269,12 +278,15 @@ def main_illumina_demux(args):
             JVMmemory=args.JVMmemory)
 
         # organize samplesheet metadata as json
+        sample_meta = list(samples.get_rows())
+        for row in sample_meta:
+            row['lane'] = str(args.lane)
         if args.out_meta_by_sample:
             with open(args.out_meta_by_sample, 'wt') as outf:
-                json.dump(dict((r['sample'],r) for r in samples.get_rows()), outf, indent=2)
+                json.dump(dict((r['sample'],r) for r in sample_meta), outf, indent=2)
         if args.out_meta_by_filename:
             with open(args.out_meta_by_filename, 'wt') as outf:
-                json.dump(dict((r['run'],r) for r in samples.get_rows()), outf, indent=2)
+                json.dump(dict((r['run'],r) for r in sample_meta), outf, indent=2)
 
     else:
         tools.picard.IlluminaBasecallsToSamTool().execute_single_sample(
@@ -334,7 +346,7 @@ def main_flowcell_metadata(args):
         runinfo = RunInfo(args.run_info)
         machine_match = runinfo.infer_sequencer_model()
     if args.in_dir:
-        illumina = IlluminaDirectory(args.inDir)
+        illumina = IlluminaDirectory(args.in_dir)
         illumina.load()
         runinfo = illumina.get_RunInfo()
         machine_match = runinfo.infer_sequencer_model()
@@ -749,6 +761,9 @@ class RunInfo(object):
     def get_fname(self):
         return self.fname
 
+    def get_run_id(self):
+        return self.root[0].attrib['Id']
+
     def get_flowcell_raw(self):
         return self.root[0].find('Flowcell').text
 
@@ -776,10 +791,12 @@ class RunInfo(object):
         #   "170712" (YYMMDD)
         #   "20170712" (YYYYMMDD)
         #   "6/27/2018 4:59:20 PM" (M/D/YYYY h:mm:ss A)
+        #   "2021-04-21T20:48:39Z" (YYYY-MM-DDTHH:mm:ssZ) [seen on NextSeq 2000]
         datestring_formats = [
             "YYMMDD",
             "YYYYMMDD",
-            "M/D/YYYY h:mm:ss A"
+            "M/D/YYYY h:mm:ss A",
+            "YYYY-MM-DDTHH:mm:ssZ"
         ]
         for datestring_format in datestring_formats:
             try:
@@ -825,13 +842,20 @@ class RunInfo(object):
         layout = self.root[0].find('FlowcellLayout')
         return int(layout.attrib['TileCount'])
 
+    def get_section_count(self):
+        layout = self.root[0].find('FlowcellLayout')
+        # not ever flowcell type has sections but some do (ex. NextSeq 550 does)
+        # return 1 in the event it's not listed in the RunInfo.xml file
+        return int(layout.attrib.get('SectionPerLane',1))
+
     def tile_count(self):
         lane_count    = self.get_lane_count()
         surface_count = self.get_surface_count()
         swath_count   = self.get_swath_count()
         tile_count    = self.get_tile_count()
+        section_count = self.get_section_count()
 
-        total_tile_count = lane_count*surface_count*swath_count*tile_count
+        total_tile_count = lane_count*surface_count*swath_count*tile_count*section_count
         return total_tile_count
 
     def machine_model_from_tile_count(self):
@@ -927,21 +951,26 @@ class RunInfo(object):
     def infer_sequencer_model(self):
         fcid = self.get_flowcell_raw()
         sequencer_by_tile_count = self.machine_model_from_tile_count()
-        sequencers_by_fcid = self.get_machines_for_flowcell_id(fcid)
+        sequencers_by_fcid      = self.get_machines_for_flowcell_id(fcid)
         
         if len(sequencers_by_fcid)>1:
             raise LookupError("Multiple sequencers possible: %s",fcid)
 
-        if sequencers_by_fcid[0]["machine"]==sequencer_by_tile_count["machine"]:
+        print("self.tile_count()",self.tile_count())
+
+        # always return sequencer model based on flowcell ID, if we can
+        if len(sequencers_by_fcid)>0:
+            if sequencer_by_tile_count is not None and sequencers_by_fcid[0]["machine"]!=sequencer_by_tile_count["machine"]:
+                log.warning("Sequencer type inferred from flowcell ID: %s does not match sequencer inferred from tile count: %s; is this a new machine type?" % (sequencers_by_fcid[0]["machine"], sequencer_by_tile_count["machine"]))
             return sequencers_by_fcid[0]
+        # otherwise return based on tile count if we can
+        elif sequencer_by_tile_count is not None:
+            log.warning("Sequencer type unknown flowcell ID: %s, yet sequencer type was inferred for tile count: %s; is this a new flowcell ID pattern?" % (fcid, self.tile_count()))
+            return sequencer_by_tile_count
+        # otherwise we do not know
         else:
-            if len(sequencers_by_fcid)==0 and sequencer_by_tile_count is not None:
-                return sequencer_by_tile_count
-            raise LookupError("sequencer model unclear; flowcell ID suggests %s while tile count suggests %s", sequencers_by_fcid[0], sequencer_by_tile_count)
-
-        if len(sequencers_by_fcid)==0 and sequencer_by_tile_count is None:
-            raise LookupError("Unknown sequencer: %s",fcid)
-
+            log.warning("Tile count: %s and flowcell ID: %s are both novel; is this a new machine type?" % (self.tile_count(), fcid))
+            return {"machine":"UNKNOWN","lane_count":self.get_lane_count()}
 
     # Machine names aim to conform to the NCBI SRA controlled 
     # vocabulary for Illumina sequencers available here:
