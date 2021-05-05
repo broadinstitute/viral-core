@@ -491,7 +491,9 @@ class IlluminaBasecallsToSamTool(PicardTools):
     defaults = {
         'read_structure': '101T8B8B101T',
         'adapters_to_check': ('PAIRED_END', 'NEXTERA_V1', 'NEXTERA_V2'),
-        #'max_reads_in_ram_per_tile': 1000000, # MAX_READS_IN_RAM_PER_TILE is deprecated in newer versions of Picard in favor of MAX_RECORDS_IN_RAM
+        # MAX_READS_IN_RAM_PER_TILE is deprecated in newer versions of Picard in favor of MAX_RECORDS_IN_RAM
+        # commenting out for now until fully removed from picard
+        #'max_reads_in_ram_per_tile': 1000000, 
         'max_records_in_ram': 2000000,
         'num_processors': 0,
         'include_non_pf_reads': False,
@@ -530,7 +532,9 @@ class IlluminaBasecallsToSamTool(PicardTools):
             'BASECALLS_DIR=' + basecalls_dir, 'BARCODES_DIR=' + barcodes_dir, 'LANE=' + str(lane),
             'RUN_BARCODE=' + read_group_id_precursor, 'LIBRARY_PARAMS=' + library_params
         ]
-        # debugging:
+        # MAX_READS_IN_RAM_PER_TILE is deprecated in newer versions of Picard in favor of MAX_RECORDS_IN_RAM
+        # remove from opts; this list comprehension can be removed once MAX_READS_IN_RAM_PER_TILE is removed
+        # from picard
         opts = [opt for opt in opts if "MAX_READS_IN_RAM_PER_TILE" not in opt]
         PicardTools.execute(self, self.subtoolName, opts, JVMmemory)
 
