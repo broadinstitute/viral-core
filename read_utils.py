@@ -1309,6 +1309,7 @@ def parser_align_and_fix(parser=argparse.ArgumentParser()):
         dest="novoalign_license_path",
         help='A path to the novoalign.lic file. This overrides the NOVOALIGN_LICENSE_PATH environment variable. (default: %(default)s)'
     )
+
     util.cmd.common_args(parser, (('loglevel', None), ('version', None), ('tmp_dir', None)))
     util.cmd.attach_main(parser, align_and_fix, split_args=True)
     return parser
@@ -1353,6 +1354,7 @@ def parser_filter_bam_to_proper_primary_mapped_reads(parser=argparse.ArgumentPar
         help='Reject reads that are not properly paired (default: %(default)s)',
         action='store_true'
     )
+
     util.cmd.common_args(parser, (('loglevel', None), ('version', None), ('tmp_dir', None)))
     util.cmd.attach_main(parser, filter_bam_to_proper_primary_mapped_reads, split_args=True)
     return parser
@@ -1416,6 +1418,7 @@ def parser_minimap2_idxstats(parser=argparse.ArgumentParser()):
     )
     parser.add_argument('--outBam', help='Output aligned, indexed BAM file', default=None)
     parser.add_argument('--outStats', help='Output idxstats file', default=None)
+
     util.cmd.common_args(parser, (('loglevel', None), ('version', None), ('tmp_dir', None)))
     util.cmd.attach_main(parser, minimap2_idxstats, split_args=True)
     return parser
@@ -1504,6 +1507,7 @@ def parser_bwamem_idxstats(parser=argparse.ArgumentParser()):
         help='Reject reads that are not properly paired (default: %(default)s)',
         action='store_true'
     )
+
     util.cmd.common_args(parser, (('loglevel', None), ('version', None), ('tmp_dir', None)))
     util.cmd.attach_main(parser, bwamem_idxstats, split_args=True)
     return parser
