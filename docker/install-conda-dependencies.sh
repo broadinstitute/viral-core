@@ -17,7 +17,7 @@ echo "CONDA_PREFIX:      ${CONDA_PREFIX}"
 echo "VIRAL_NGS_PATH:    ${VIRAL_NGS_PATH}"
 echo "MINICONDA_PATH:    ${MINICONDA_PATH}"
 echo "CONDA_DEFAULT_ENV: ${CONDA_DEFAULT_ENV}"
-CONDA_CHANNEL_STRING="--override-channels -c broad-viral -c conda-forge -c bioconda -c defaults"
+CONDA_CHANNEL_STRING="--override-channels -c broad-viral -c conda-forge -c bioconda"
 
 # solving the dependency graph for a conda environment can take a while.
 # so long, in fact, that the conda process can run for >10 minutes without
