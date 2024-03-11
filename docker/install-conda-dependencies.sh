@@ -76,7 +76,7 @@ done
 # to keep travis build going. Enforce a hard timeout via timeout GNU coreutil
 start_keepalive
 #timeout $CONDA_INSTALL_TIMEOUT conda install -y -q $CONDA_CHANNEL_STRING -p "${CONDA_PREFIX}" $REQUIREMENTS
-mamba install -y -q $CONDA_CHANNEL_STRING -p "${CONDA_PREFIX}" $REQUIREMENTS
+mamba install -y -vvv -q $CONDA_CHANNEL_STRING -p "${CONDA_PREFIX}" $REQUIREMENTS
 stop_keepalive
 
 # clean up
