@@ -43,7 +43,7 @@ function start_keepalive {
 
     >&2 echo "Running..."
     # Start a process that runs as a keep-alive
-    # to avoid travis quitting if there is no output
+    # to avoid having the CI running quit if there is no output
     (while true; do
         sleep 120
         >&2 echo "Still running..."
