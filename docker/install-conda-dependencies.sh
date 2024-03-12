@@ -19,6 +19,9 @@ echo "MINICONDA_PATH:    ${MINICONDA_PATH}"
 echo "CONDA_DEFAULT_ENV: ${CONDA_DEFAULT_ENV}"
 CONDA_CHANNEL_STRING="--override-channels -c broad-viral -c conda-forge -c bioconda"
 
+# ToDo: if confirmed working, move to conda config section of viral-baseimage
+conda config --set repodata_threads $(nproc)
+
 # solving the dependency graph for a conda environment can take a while.
 # so long, in fact, that the conda process can run for >10 minutes without
 # writing to stderr/stdout. That means Travis CI is likely to kill the job
