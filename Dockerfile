@@ -1,4 +1,4 @@
-FROM quay.io/broadinstitute/viral-baseimage:ct-bump-conda-python
+FROM quay.io/broadinstitute/viral-baseimage:0.2.2
 
 LABEL maintainer "viral-ngs@broadinstitute.org"
 
