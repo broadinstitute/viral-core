@@ -75,7 +75,7 @@ for condafile in $*; do
 	REQUIREMENTS="$REQUIREMENTS --file $condafile"
 
     # print dependency tree for all packages in file
-    grep -vE '^#' "${condafile}" | xargs -I {} mamba repoquery depends --quiet --pretty --recursive --tree "{}";
+    grep -vE '^#' "${condafile}" | xargs -I {} mamba repoquery depends $CONDA_CHANNEL_STRING --quiet --pretty --recursive --tree "{}";
 done
 
 # run conda install with keepalive subshell process running in background
