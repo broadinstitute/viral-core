@@ -9,6 +9,7 @@
 
 set -e -o pipefail
 
+#DEBUG=1 # set DEBUG=1 for more verbose output
 CONDA_INSTALL_TIMEOUT="90m"
 
 echo "PATH:              ${PATH}"
@@ -75,14 +76,16 @@ for condafile in $*; do
 	REQUIREMENTS="$REQUIREMENTS --file $condafile"
 
     # print dependency tree for all packages in file
-    grep -vE '^#' "${condafile}" | xargs -I {} mamba repoquery depends $CONDA_CHANNEL_STRING --quiet --pretty --recursive --tree "{}";
+    [[ $DEBUG = 1 ]] && grep -vE '^#' "${condafile}" | xargs -I {} mamba repoquery depends $CONDA_CHANNEL_STRING --quiet --pretty --recursive --tree "{}";
 done
 
 # run conda install with keepalive subshell process running in background
 # to keep travis build going. Enforce a hard timeout via timeout GNU coreutil
 start_keepalive
-#timeout $CONDA_INSTALL_TIMEOUT conda install -y -q $CONDA_CHANNEL_STRING -p "${CONDA_PREFIX}" $REQUIREMENTS
-mamba install -y -vvv -q $CONDA_CHANNEL_STRING -p "${CONDA_PREFIX}" $REQUIREMENTS
+if [[ $DEBUG = 1 ]]; then 
+    MAMBA_DEBUG_LEVEL="-vvv"
+fi
+mamba install -y $MAMBA_DEBUG_LEVEL -q $CONDA_CHANNEL_STRING -p "${CONDA_PREFIX}" $REQUIREMENTS
 stop_keepalive
 
 # clean up
