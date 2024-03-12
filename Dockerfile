@@ -17,7 +17,8 @@ ENV \
 	INSTALL_PATH="/opt/viral-ngs" \
 	VIRAL_NGS_PATH="/opt/viral-ngs/source" \
 	MINICONDA_PATH="/opt/miniconda" \
-	CONDA_DEFAULT_ENV=viral-ngs-env
+	CONDA_DEFAULT_ENV=viral-ngs-env \
+	CONDA_ENVS_PATH="$MINICONDA_PATH/envs"
 ENV \
 	PATH="$VIRAL_NGS_PATH:$MINICONDA_PATH/envs/$CONDA_DEFAULT_ENV/bin:$MINICONDA_PATH/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin" \
 	CONDA_PREFIX=$MINICONDA_PATH/envs/$CONDA_DEFAULT_ENV \
