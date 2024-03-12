@@ -82,13 +82,25 @@ class TestSampleSheet(TestCaseWithTmp):
         self.assertEqual(samples.num_indexes(), 2)
         self.assertEqual(len(samples.get_rows()), 24)
 
+    def test_tabfile_extras(self):
+        inDir = util.file.get_test_input_path(self)
+        samples = illumina.SampleSheet(os.path.join(inDir, 'SampleSheet-custom-2.txt'))
+        self.assertEqual(samples.num_indexes(), 2)
+        self.assertEqual(len(samples.get_rows()), 96)
+
+    def test_tabfile_extras_win(self):
+        inDir = util.file.get_test_input_path(self)
+        samples = illumina.SampleSheet(os.path.join(inDir, 'SampleSheet-custom-2_win-endings.tsv'))
+        self.assertEqual(samples.num_indexes(), 2)
+        self.assertEqual(len(samples.get_rows()), 96)
+
     def test_blank_line_in_tabular_section(self):
         inDir = util.file.get_test_input_path(self)
         samples = illumina.SampleSheet(os.path.join(inDir, 'SampleSheet-with-blanklines.csv'))
         self.assertEqual(samples.num_indexes(), 2)
         self.assertEqual(len(samples.get_rows()), 12)
 
-    def test_blank_line_in_tabular_section(self):
+    def test_picard_block(self):
         inDir = util.file.get_test_input_path(self)
         samples = illumina.SampleSheet(os.path.join(inDir, 'SampleSheet-in-Broad-MiSeq-Format_with_Picard_Block.csv'))
         self.assertEqual(samples.num_indexes(), 2)
@@ -106,6 +118,8 @@ class TestRunInfo(TestCaseWithTmp):
         self.assertEqual(runinfo.get_machine(), 'M04004')
         self.assertEqual(runinfo.get_read_structure(), '101T8B8B101T')
         self.assertEqual(runinfo.num_reads(), 2)
+        self.assertEqual(runinfo.get_machine_model(), "Illumina MiSeq")
+        self.assertEqual(runinfo.get_flowcell_lane_count(), 1)
 
     def test_hiseq(self):
         inDir = util.file.get_test_input_path(self)
@@ -116,6 +130,8 @@ class TestRunInfo(TestCaseWithTmp):
         self.assertEqual(runinfo.get_machine(), 'SL-HDF')
         self.assertEqual(runinfo.get_read_structure(), '101T8B8B101T')
         self.assertEqual(runinfo.num_reads(), 2)
+        self.assertEqual(runinfo.get_machine_model(), "Illumina HiSeq 2500")
+        self.assertEqual(runinfo.get_flowcell_lane_count(), 2)
 
     def test_novaseq(self):
         inDir = util.file.get_test_input_path(self)
@@ -126,6 +142,35 @@ class TestRunInfo(TestCaseWithTmp):
         self.assertEqual(runinfo.get_machine(), 'A00198')
         self.assertEqual(runinfo.get_read_structure(), '101T8B8B101T')
         self.assertEqual(runinfo.num_reads(), 2)
+        self.assertEqual(runinfo.get_machine_model(), "Illumina NovaSeq 6000")
+        self.assertEqual(runinfo.get_flowcell_lane_count(), 2)
+
+    def test_nextseq550(self):
+        inDir = util.file.get_test_input_path(self)
+        runinfo = illumina.RunInfo(os.path.join(inDir, 'RunInfo-nextseq550.xml'))
+        self.assertEqual(runinfo.get_flowcell(), 'HMTLKAFX2')
+        self.assertEqual(runinfo.get_rundate_american(), '02/21/2021')
+        self.assertEqual(runinfo.get_rundate_iso(), '2021-02-21')
+        self.assertEqual(runinfo.get_machine(), 'NB552060')
+        self.assertEqual(runinfo.get_read_structure(), '149T10B10B149T')
+        self.assertEqual(runinfo.num_reads(), 2)
+        self.assertEqual(runinfo.get_machine_model(), "NextSeq 550")
+        self.assertEqual(runinfo.get_flowcell_lane_count(), 4)
+
+    def test_novel_tile_count_but_known_fcid(self):
+        inDir = util.file.get_test_input_path(self)
+        runinfo = illumina.RunInfo(os.path.join(inDir, 'RunInfo-novel-tile-count.xml'))
+        self.assertEqual(runinfo.get_machine_model(), "Illumina MiSeq")
+
+    def test_novel_fcid_but_known_tile_count(self):
+        inDir = util.file.get_test_input_path(self)
+        runinfo = illumina.RunInfo(os.path.join(inDir, 'RunInfo-novel-fcid.xml'))
+        self.assertEqual(runinfo.get_machine_model(), "Illumina MiSeq")
+
+    def test_novel_tile_count_and_fcid(self):
+        inDir = util.file.get_test_input_path(self)
+        runinfo = illumina.RunInfo(os.path.join(inDir, 'RunInfo-novel-fcid-and-tilecount.xml'))
+        self.assertEqual(runinfo.get_machine_model(), "UNKNOWN")
 
 
 class TestIlluminaDir(TestCaseWithTmp):
@@ -266,6 +311,20 @@ class TestIlluminaBarcodeHelper(TestCaseWithTmp):
 
     def test_single_index_run(self):
         dir_prefix = "single_index"
+        in_dir = util.file.get_test_input_path(self)
+        in_barcodes = os.path.join(in_dir,dir_prefix,"barcodes.txt")
+        in_metrics = os.path.join(in_dir,dir_prefix,"metrics.txt")
+        out_report = util.file.mkstempfname('.txt')
+        expected = os.path.join(in_dir,dir_prefix,"expected.txt")
+
+        args = [in_barcodes, in_metrics, out_report]
+        args = illumina.parser_guess_barcodes(argparse.ArgumentParser()).parse_args(args)
+        args.func_main(args)
+
+        self.assertEqualContents(out_report, expected)
+
+    def test_single_index_i5_only_run(self):
+        dir_prefix = "single_index_i5_only"
         in_dir = util.file.get_test_input_path(self)
         in_barcodes = os.path.join(in_dir,dir_prefix,"barcodes.txt")
         in_metrics = os.path.join(in_dir,dir_prefix,"metrics.txt")

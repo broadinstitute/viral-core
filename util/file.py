@@ -11,7 +11,7 @@ import os
 import gzip
 import bz2
 import lz4.frame
-import zstd
+import zstandard as zstd
 import io
 import tempfile
 import subprocess
@@ -246,7 +246,16 @@ def extract_tarball(tarfile, out_dir=None, threads=None, compression='auto', pip
             decompressor = ['zstd', '-dc']
         elif compression == 'none':
             decompressor = ['cat']
-        untar_cmd = ['tar', '-C', out_dir, '-x']
+
+        untar_cmd = ['tar']
+        # always tolerate concatenated tarballs 
+        # (remove "True" to only allow for non-piped input)
+        if True or tarfile != '-': 
+            # --ignore-zeros to allow tarballs that have been made of other tarballs merged via simply
+            # calling 'cat' on them all
+            untar_cmd.extend(['--ignore-zeros'])
+        untar_cmd.extend(['-C', out_dir, '-x'])
+
         if os.getuid() == 0:
             # GNU tar behaves differently when run as root vs normal user
             # we want normal user behavior always
@@ -1102,8 +1111,8 @@ class DBConnection:
         self.cur.execute("PRAGMA foreign_keys=ON")
         self.cur.execute("PRAGMA foreign_keys")
         fk = self.cur.fetchone()
-        log.debug("SQLite version: %s" % sqlite3.sqlite_version)
-        log.debug("SQLite foreign key support: %s" % ((fk and fk[0]) and 'true' or 'false'))
+        #log.debug("SQLite version: %s" % sqlite3.sqlite_version)
+        #log.debug("SQLite foreign key support: %s" % ((fk and fk[0]) and 'true' or 'false'))
         self.start()
     def start(self):
         pass

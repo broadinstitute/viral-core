@@ -13,6 +13,7 @@ import os.path
 import re
 import gc
 import csv
+import json
 import sqlite3, itertools
 import shutil
 import subprocess
@@ -48,6 +49,9 @@ def parser_illumina_demux(parser=argparse.ArgumentParser()):
                         help='''Write a TSV report of all barcode counts, in descending order. 
                                 Only applicable for read structures containing "B"''',
                         default=None)
+    parser.add_argument('--max_barcodes',
+                        help='''Cap the commonBarcodes report length to this size (default: %(default)s)''',
+                        default=10000, type=int)
     parser.add_argument('--sampleSheet',
                         default=None,
                         help='''Override SampleSheet. Input tab or CSV file w/header and four named columns:
@@ -65,6 +69,15 @@ def parser_illumina_demux(parser=argparse.ArgumentParser()):
     parser.add_argument('--append_run_id',
                         help='If specified, output filenames will include the flowcell ID and lane number.',
                         action='store_true')
+    parser.add_argument('--out_meta_by_sample',
+                        help='Output json metadata by sample',
+                        default=None)
+    parser.add_argument('--out_meta_by_filename',
+                        help='Output json metadata by bam file basename',
+                        default=None)
+    parser.add_argument('--out_runinfo',
+                        help='Output json metadata about the run',
+                        default=None)
 
     for opt in tools.picard.ExtractIlluminaBarcodesTool.option_list:
         if opt not in ('read_structure', 'num_processors'):
@@ -172,7 +185,7 @@ def main_illumina_demux(args):
         else:
             log.error("CheckIlluminaDirectory failed for %s", illumina.get_BCLdir())
 
-    multiplexed_samples = True if 'B' in read_structure else False            
+    multiplexed_samples = True if 'B' in read_structure else False
     
     if multiplexed_samples:
         assert samples is not None, "This looks like a multiplexed run since 'B' is in the read_structure: a SampleSheet must be given."
@@ -202,11 +215,21 @@ def main_illumina_demux(args):
             JVMmemory=args.JVMmemory)
 
         if args.commonBarcodes:
+            barcode_lengths = re.findall(r'(\d+)B',read_structure)
+            try:
+                barcode1_len=int(barcode_lengths[0])
+            except IndexError:
+                barcode1_len = 0
+            try:
+                barcode2_len=int(barcode_lengths[1])
+            except IndexError:
+                barcode2_len = 0
+
             # this step can take > 2 hours on a large high-output flowcell
             # so kick it to the background while we demux
             #count_and_sort_barcodes(barcodes_tmpdir, args.commonBarcodes)
             executor = concurrent.futures.ProcessPoolExecutor()
-            executor.submit(count_and_sort_barcodes, barcodes_tmpdir, args.commonBarcodes, threads=util.misc.sanitize_thread_count(args.threads))
+            executor.submit(count_and_sort_barcodes, barcodes_tmpdir, args.commonBarcodes, barcode1_len, barcode2_len, truncateToLength=args.max_barcodes, threads=util.misc.sanitize_thread_count(args.threads))
 
         # Picard IlluminaBasecallsToSam
         basecalls_input = util.file.mkstempfname('.txt', prefix='.'.join(['library_params', flowcell, str(args.lane)]))
@@ -224,6 +247,24 @@ def main_illumina_demux(args):
     if picardOpts.get('sequencing_center'):
         picardOpts["sequencing_center"] = util.file.string_to_file_name(picardOpts["sequencing_center"])
 
+    if args.out_runinfo:
+        with open(args.out_runinfo, 'wt') as outf:
+            json.dump({
+                'sequencing_center':picardOpts['sequencing_center'],
+                'run_start_date':runinfo.get_rundate_iso(),
+                'read_structure':picardOpts['read_structure'],
+                'indexes':str(samples.indexes),
+                'run_id':runinfo.get_run_id(),
+                'lane':str(args.lane),
+                'flowcell':str(runinfo.get_flowcell()),
+                'lane_count':str(runinfo.get_lane_count()),
+                'surface_count':str(runinfo.get_surface_count()),
+                'swath_count':str(runinfo.get_swath_count()),
+                'tile_count':str(runinfo.get_tile_count()),
+                'total_tile_count':str(runinfo.tile_count()),
+                'sequencer_model':runinfo.get_machine_model(),
+                }, outf, indent=2)
+
     # manually garbage collect to make sure we have as much RAM free as possible
     gc.collect()
     if multiplexed_samples:
@@ -235,6 +276,18 @@ def main_illumina_demux(args):
             basecalls_input,
             picardOptions=picardOpts,
             JVMmemory=args.JVMmemory)
+
+        # organize samplesheet metadata as json
+        sample_meta = list(samples.get_rows())
+        for row in sample_meta:
+            row['lane'] = str(args.lane)
+        if args.out_meta_by_sample:
+            with open(args.out_meta_by_sample, 'wt') as outf:
+                json.dump(dict((r['sample'],r) for r in sample_meta), outf, indent=2)
+        if args.out_meta_by_filename:
+            with open(args.out_meta_by_filename, 'wt') as outf:
+                json.dump(dict((r['run'],r) for r in sample_meta), outf, indent=2)
+
     else:
         tools.picard.IlluminaBasecallsToSamTool().execute_single_sample(
             illumina.get_BCLdir(),
@@ -260,6 +313,52 @@ def main_illumina_demux(args):
 
 __commands__.append(('illumina_demux', parser_illumina_demux))
 
+# ==========================
+# ***  flowcell_metadata   ***
+# ==========================
+
+def parser_flowcell_metadata(parser=argparse.ArgumentParser()):
+    parser.add_argument('outMetadataFile', help='path of file to which metadata will be written.')
+    group = parser.add_mutually_exclusive_group(required=True)
+    group.add_argument('--inDir', dest="in_dir", help='Illumina BCL directory (or tar.gz of BCL directory). This is the top-level run directory.', default=None)
+    group.add_argument('--runInfo',
+                        default=None,
+                        dest="run_info",
+                        help='''RunInfo.xml file.''')
+    group.add_argument('--flowcellID', dest="flowcell_id", help='flowcell ID (default: read from RunInfo.xml).', default=None)
+    util.cmd.common_args(parser, (('threads', tools.picard.IlluminaBasecallsToSamTool.defaults['num_processors']), ('loglevel', None), ('version', None), ('tmp_dir', None)))
+    util.cmd.attach_main(parser, main_flowcell_metadata)
+    return parser
+
+def main_flowcell_metadata(args):
+    ''' Writes run metadata to a file
+    '''
+
+    if args.flowcell_id:
+        machine_matches = RunInfo.get_machines_for_flowcell_id(args.flowcell_id)
+        machine_match = None
+        if len(machine_matches)>1:
+            raise LookupError("Multiple sequencers found for flowcell ID: %s" % " ".join([m["machine"] for m in machine_matches]))
+        if len(machine_matches)==0:
+            raise LookupError("No sequencers found for flowcell ID '%s' " % args.flowcell_id)
+        machine_match = machine_matches[0]
+    if args.run_info:
+        runinfo = RunInfo(args.run_info)
+        machine_match = runinfo.infer_sequencer_model()
+    if args.in_dir:
+        illumina = IlluminaDirectory(args.in_dir)
+        illumina.load()
+        runinfo = illumina.get_RunInfo()
+        machine_match = runinfo.infer_sequencer_model()
+
+    with open(args.outMetadataFile,"w") as outf:
+        for k,v in machine_match.items():
+            if type(v)==str and len(v)>0 or type(v)!=str:
+                outline = "{k}\t{v}\n".format(k=k,v=v)
+                print(outline,end="")
+                outf.writelines([outline])
+
+__commands__.append(('flowcell_metadata', parser_flowcell_metadata))
 
 # ==========================
 # ***  lane_metrics   ***
@@ -397,7 +496,17 @@ def main_common_barcodes(args):
         picardOptions=picardOpts,
         JVMmemory=args.JVMmemory)
 
-    count_and_sort_barcodes(barcodes_tmpdir, args.outSummary, args.truncateToLength, args.includeNoise, args.omitHeader)
+    barcode_lengths = re.findall(r'(\d+)B',read_structure)
+    try:
+        barcode1_len=int(barcode_lengths[0])
+    except IndexError:
+        barcode1_len = 0
+    try:
+        barcode2_len=int(barcode_lengths[1])
+    except IndexError:
+        barcode2_len = 0
+
+    count_and_sort_barcodes(barcodes_tmpdir, args.outSummary, barcode1_len, barcode2_len, args.truncateToLength, args.includeNoise, args.omitHeader)
 
     # clean up
     os.unlink(barcode_file)
@@ -407,7 +516,7 @@ def main_common_barcodes(args):
 
 __commands__.append(('common_barcodes', parser_common_barcodes))
 
-def count_and_sort_barcodes(barcodes_dir, outSummary, truncateToLength=None, includeNoise=False, omitHeader=False, threads=None):
+def count_and_sort_barcodes(barcodes_dir, outSummary, barcode1_len=8, barcode2_len=8, truncateToLength=None, includeNoise=False, omitHeader=False, threads=None):
     # collect the barcode file paths for all tiles
     tile_barcode_files = [os.path.join(barcodes_dir, filename) for filename in os.listdir(barcodes_dir)]
 
@@ -448,8 +557,8 @@ def count_and_sort_barcodes(barcodes_dir, outSummary, truncateToLength=None, inc
 
                 barcode,count = row
 
-                writer.writerow((barcode[:8], ",".join([x for x in illumina_reference.guess_index(barcode[:8], distance=1)] or ["Unknown"]), 
-                            barcode[8:], ",".join([x for x in illumina_reference.guess_index(barcode[8:], distance=1)] or ["Unknown"]), 
+                writer.writerow((barcode[:barcode1_len], ",".join([x for x in illumina_reference.guess_index(barcode[:barcode1_len], distance=1)] or ["Unknown"]), 
+                            barcode[barcode1_len:len(barcode)], ",".join([x for x in illumina_reference.guess_index(barcode[barcode1_len:len(barcode)], distance=1)] or ["Unknown"]),
                             count))
 
                 if num_processed%50000==0:
@@ -487,16 +596,20 @@ def parser_guess_barcodes(parser=argparse.ArgumentParser()):
     parser.add_argument('--outlier_threshold', 
                         help='threshold of how far from unbalanced a sample must be to be considered an outlier.',
                         type=float,
-                        default=0.675)
+                        default=0.775)
     parser.add_argument('--expected_assigned_fraction', 
                         help='The fraction of reads expected to be assigned. An exception is raised if fewer than this fraction are assigned.',
                         type=float,
                         default=0.7)
-    parser.add_argument('--number_of_negative_controls',
-                        help='The number of negative controls in the pool, for calculating expected number of reads in the rest of the pool.',
-                        type=int,
-                        default=1)
-
+    group2 = parser.add_mutually_exclusive_group()
+    group2.add_argument('--number_of_negative_controls',
+                        help='If specified, the number of negative controls in the pool, for calculating expected number of reads in the rest of the pool.',
+                        type=int)
+    group2.add_argument('--neg_control_prefixes',
+                        nargs='+',
+                        help='If specified, the sample name prefixes assumed for counting negative controls. Case-insensitive.',
+                        type=str,
+                        default=["neg", "water", "NTC", "H2O"])
     parser.add_argument('--rows_limit',
                         default=1000,
                         type=int,
@@ -515,7 +628,8 @@ def main_guess_barcodes(in_barcodes,
                         expected_assigned_fraction, 
                         number_of_negative_controls, 
                         readcount_threshold, 
-                        rows_limit):
+                        rows_limit,
+                        neg_control_prefixes):
     """
         Guess the barcode value for a sample name,
             based on the following:
@@ -541,7 +655,8 @@ def main_guess_barcodes(in_barcodes,
                                                     outlier_threshold=outlier_threshold, 
                                                     expected_assigned_fraction=expected_assigned_fraction, 
                                                     number_of_negative_controls=number_of_negative_controls, 
-                                                    readcount_threshold=readcount_threshold)
+                                                    readcount_threshold=readcount_threshold,
+                                                    neg_control_prefixes=neg_control_prefixes)
     bh.write_guessed_barcodes(out_summary_tsv, guessed_barcodes)
 
 __commands__.append(('guess_barcodes', parser_guess_barcodes))
@@ -652,8 +767,14 @@ class RunInfo(object):
     def get_fname(self):
         return self.fname
 
+    def get_run_id(self):
+        return self.root[0].attrib['Id']
+
+    def get_flowcell_raw(self):
+        return self.root[0].find('Flowcell').text
+
     def get_flowcell(self):
-        fc = self.root[0].find('Flowcell').text
+        fc = self.get_flowcell_raw()
         # slice in the case where the ID has a prefix of zeros
         if re.match(r"^0+-", fc):
             if '-' in fc:
@@ -676,10 +797,12 @@ class RunInfo(object):
         #   "170712" (YYMMDD)
         #   "20170712" (YYYYMMDD)
         #   "6/27/2018 4:59:20 PM" (M/D/YYYY h:mm:ss A)
+        #   "2021-04-21T20:48:39Z" (YYYY-MM-DDTHH:mm:ssZ) [seen on NextSeq 2000]
         datestring_formats = [
             "YYMMDD",
             "YYYYMMDD",
-            "M/D/YYYY h:mm:ss A"
+            "M/D/YYYY h:mm:ss A",
+            "YYYY-MM-DDTHH:mm:ssZ"
         ]
         for datestring_format in datestring_formats:
             try:
@@ -708,6 +831,284 @@ class RunInfo(object):
 
     def num_reads(self):
         return sum(1 for x in self.root[0].find('Reads').findall('Read') if x.attrib['IsIndexedRead'] == 'N')
+
+    def get_lane_count(self):
+        layout = self.root[0].find('FlowcellLayout')
+        return int(layout.attrib['LaneCount'])
+
+    def get_surface_count(self):
+        layout = self.root[0].find('FlowcellLayout')
+        return int(layout.attrib['SurfaceCount'])
+
+    def get_swath_count(self):
+        layout = self.root[0].find('FlowcellLayout')
+        return int(layout.attrib['SwathCount'])
+
+    def get_tile_count(self):
+        layout = self.root[0].find('FlowcellLayout')
+        return int(layout.attrib['TileCount'])
+
+    def get_section_count(self):
+        layout = self.root[0].find('FlowcellLayout')
+        # not ever flowcell type has sections but some do (ex. NextSeq 550 does)
+        # return 1 in the event it's not listed in the RunInfo.xml file
+        return int(layout.attrib.get('SectionPerLane',1))
+
+    def tile_count(self):
+        lane_count    = self.get_lane_count()
+        surface_count = self.get_surface_count()
+        swath_count   = self.get_swath_count()
+        tile_count    = self.get_tile_count()
+        section_count = self.get_section_count()
+
+        total_tile_count = lane_count*surface_count*swath_count*tile_count*section_count
+        return total_tile_count
+
+    def machine_model_from_tile_count(self):
+        """
+            Return machine name and lane count based on tile count
+            Machine names aim to conform to the NCBI SRA controlled 
+            vocabulary for Illumina sequencers available here:
+              https://www.ncbi.nlm.nih.gov/viewvc/v1/trunk/sra/doc/SRA_1-5/SRA.common.xsd?view=co&content-type=text%2Fplain
+        """
+        tc = self.tile_count()
+
+        machine=None
+        if tc == 2:
+            log.info("Detected %s tiles, interpreting as MiSeq nano run.",tc)
+            machine = {"machine":"Illumina MiSeq","lane_count":1}
+        elif tc == 8:
+            log.info("Detected %s tiles, interpreting as MiSeq micro run.",tc)
+            machine = {"machine":"Illumina MiSeq","lane_count":1}
+        elif tc == 16:
+            log.info("Detected %s tiles, interpreting as iSeq run.",tc)
+            machine = {"machine":"Illumina iSeq 100","lane_count":1}
+        elif tc == 28:
+            log.info("Detected %s tiles, interpreting as MiSeq run.",tc)
+            machine = {"machine":"Illumina MiSeq","lane_count":1}
+        elif tc == 38:
+            log.info("Detected %s tiles, interpreting as MiSeq run.",tc)
+            machine = {"machine":"Illumina MiSeq","lane_count":1}
+        elif tc == 128:
+            log.info("Detected %s tiles, interpreting as HiSeq2k run.",tc)
+            machine = {"machine":"Illumina HiSeq 2500","lane_count":2}
+        elif tc == 132:
+            # NextSeq P2 kit can be used on either NextSeq 1000 or 2000
+            # so we cannot know which from the tile count alone
+            log.info("Detected %s tiles, interpreting as NextSeq 1000/2000 P2 run.",tc)
+            machine = {"machine":"NextSeq 1000/2000","lane_count":1}
+        elif tc == 264:
+            log.info("Detected %s tiles, interpreting as NextSeq 2000 P3 run.",tc)
+            machine = {"machine":"NextSeq 2000","lane_count":2}
+        elif tc == 288:
+            # NextSeq 550 is a NextSeq 500 that can also read arrays.
+            # Since we cannot tell them apart based on tile count, we call it the 550
+            log.info("Detected %s tiles, interpreting as NextSeq 550 (mid-output) run.",tc)
+            machine = {"machine":"NextSeq 550","lane_count":4}
+        elif tc == 624:
+            log.info("Detected %s tiles, interpreting as Illumina NovaSeq 6000 run.",tc)
+            machine = {"machine":"Illumina NovaSeq 6000","lane_count":2}
+        elif tc == 768:
+            # HiSeq 2000 and 2500 have the same number of tiles
+            # Defaulting to the newer HiSeq 2500
+            log.info("Detected %s tiles, interpreting as HiSeq2500 run.",tc)
+            machine = {"machine":"Illumina HiSeq 2500","lane_count":8}
+        elif tc == 864:
+            # NextSeq 550 is a NextSeq 500 that can also read arrays.
+            # Since we cannot tell them apart based on tile count, we call it the 550
+            log.info("Detected %s tiles, interpreting as NextSeq 550 (high-output) run.",tc)
+            machine = {"machine":"NextSeq 550","lane_count":4}
+        elif tc == 896:
+            log.info("Detected %s tiles, interpreting as HiSeq4k run.",tc)
+            machine = {"machine":"Illumina HiSeq 4000","lane_count":8}
+        elif tc == 1408:
+            log.info("Detected %s tiles, interpreting as Illumina NovaSeq 6000 run.",tc)
+            machine = {"machine":"Illumina NovaSeq 6000","lane_count":2}
+        elif tc == 3744:
+            log.info("Detected %s tiles, interpreting as Illumina NovaSeq 6000 run.",tc)
+            machine = {"machine":"Illumina NovaSeq 6000","lane_count":4}
+        elif tc > 3744:
+            log.info("Tile count: %s tiles (unknown instrument type).",tc)
+        return machine
+
+    def get_flowcell_chemistry(self):
+        guessed_sequencer = self.infer_sequencer_model()
+        return guessed_sequencer["chemistry"]
+
+    def get_flowcell_lane_count(self):
+        guessed_sequencer = self.infer_sequencer_model()
+        try:
+            return self.get_lane_count()
+        except Exception as e:
+            return guessed_sequencer.get("lane_count",None)
+
+    def get_machine_model(self):
+        guessed_sequencer = self.infer_sequencer_model()
+        return guessed_sequencer["machine"]
+
+    @classmethod
+    def get_machines_for_flowcell_id(cls, fcid):
+        sequencer_by_fcid = []
+        for key in cls.flowcell_to_machine_model_and_chemistry:
+            if re.search(key,fcid):
+                sequencer_by_fcid.append(cls.flowcell_to_machine_model_and_chemistry[key])
+        return sequencer_by_fcid
+
+    def infer_sequencer_model(self):
+        fcid = self.get_flowcell_raw()
+        sequencer_by_tile_count = self.machine_model_from_tile_count()
+        sequencers_by_fcid      = self.get_machines_for_flowcell_id(fcid)
+        
+        if len(sequencers_by_fcid)>1:
+            raise LookupError("Multiple sequencers possible: %s",fcid)
+
+        print("self.tile_count()",self.tile_count())
+
+        # always return sequencer model based on flowcell ID, if we can
+        if len(sequencers_by_fcid)>0:
+            if sequencer_by_tile_count is not None and sequencers_by_fcid[0]["machine"]!=sequencer_by_tile_count["machine"]:
+                log.warning("Sequencer type inferred from flowcell ID: %s does not match sequencer inferred from tile count: %s; is this a new machine type?" % (sequencers_by_fcid[0]["machine"], sequencer_by_tile_count["machine"]))
+            return sequencers_by_fcid[0]
+        # otherwise return based on tile count if we can
+        elif sequencer_by_tile_count is not None:
+            log.warning("Sequencer type unknown flowcell ID: %s, yet sequencer type was inferred for tile count: %s; is this a new flowcell ID pattern?" % (fcid, self.tile_count()))
+            return sequencer_by_tile_count
+        # otherwise we do not know
+        else:
+            log.warning("Tile count: %s and flowcell ID: %s are both novel; is this a new machine type?" % (self.tile_count(), fcid))
+            return {"machine":"UNKNOWN","lane_count":self.get_lane_count()}
+
+    # Machine names aim to conform to the NCBI SRA controlled 
+    # vocabulary for Illumina sequencers available here:
+    #   https://www.ncbi.nlm.nih.gov/viewvc/v1/trunk/sra/doc/SRA_1-5/SRA.common.xsd?view=co&content-type=text%2Fplain
+    flowcell_to_machine_model_and_chemistry = {
+        r'[A-Z,0-9]{5}AAXX':{
+            "machine":    "Illumina Genome Analyzer IIx",
+            "chemistry":  "All",
+            "lane_count":  8,
+            "note":       ""
+        },
+        r'[A-Z,0-9]{5}ABXX':{
+            "machine":    "Illumina HiSeq 2000",
+            "chemistry":  "V2 Chemistry",
+            "lane_count":  8,
+            "note":       ""
+        },
+        r'[A-Z,0-9]{5}ACXX':{
+            "machine":   "Illumina HiSeq 2000",
+            "chemistry": "V3 Chemistry",
+            "lane_count": 8,
+            "note":       "Also used on transient 2000E"
+        },
+        r'[A-Z,0-9]{5}(?:ANXX|AN\w\w)':{
+            "machine":    "Illumina HiSeq 2500",
+            "chemistry":  "V4 Chemistry",
+            "lane_count":  8,
+            "note":       "High output"
+        },
+        r'[A-Z,0-9]{5}(?:ADXX|AD\w\w)':{
+            "machine":    "Illumina HiSeq 2500",
+            "chemistry":  "V1 Chemistry",
+            "lane_count":  2,
+            "note":       "Rapid run"
+        },
+        r'[A-Z,0-9]{5}AMXX':{
+            "machine":    "Illumina HiSeq 2500",
+            "chemistry":  "V2 Chemistry (beta)",
+            "lane_count":  2,
+            "note":       "Rapid run"
+        },
+        r'[A-Z,0-9]{5}(?:BCXX|BC\w\w)':{
+            "machine":    "Illumina HiSeq 2500",
+            "chemistry":  "V2 Chemistry",
+            "lane_count":  2,
+            "note":       "Rapid run"
+        },
+        # NextSeq 550 is a NextSeq 500 that can also read arrays.
+        # Since we cannot tell them apart based on tile count, we call it the 550
+        r'[A-Z,0-9]{5}AFX\w':{
+            "machine":    "NextSeq 550",
+            "chemistry":  "Mid-Output NextSeq",
+            "lane_count":  4,
+            "note":       ""
+        },
+        # NextSeq 550 is a NextSeq 500 that can also read arrays.
+        # Since we cannot tell them apart based on tile count, we call it the 550
+        r'[A-Z,0-9]{5}AGXX':{
+            "machine":    "NextSeq 550",
+            "chemistry":  "V1 Chemistry",
+            "lane_count":  4,
+            "note":       "High-output"
+        },
+        # NextSeq 550 is a NextSeq 500 that can also read arrays.
+        # Since we cannot tell them apart based on tile count, we call it the 550
+        r'[A-Z,0-9]{5}(?:BGXX|BG\w\w)':{
+            "machine":    "NextSeq 550",
+            "chemistry":  "V2/V2.5 Chemistry",
+            "lane_count":  4,
+            "note":       "High-output"
+        },
+        # r'[A-Z,0-9]{5}(?:AAAC|AAA\w)':{ # suffix not confirmed
+        #     "machine":    "NextSeq 1000/2000",
+        #     "chemistry":  "P2 Chemistry",
+        #     "lane_count":  1,
+        #     "note":       "Mid-output"
+        # },
+        # r'[A-Z,0-9]{5}(?:AAAC|AAA\w)':{ # suffix not confirmed
+        #     "machine":    "NextSeq 2000",
+        #     "chemistry":  "P3 Chemistry",
+        #     "lane_count":  2,
+        #     "note":       "High-output"
+        # },
+        r'[A-Z,0-9]{5}(?:BBXX|BB\w\w)':{
+            "machine":    "Illumina HiSeq 4000",
+            "chemistry":  "Illumina HiSeq 4000",
+            "lane_count":  8,
+            "note":       ""
+        },
+        r'[A-Z,0-9]{5}(?:ALXX:AL\w\w)':{
+            "machine":    "HiSeq X Ten",
+            "chemistry":  "V1/V2.5 Chemistry",
+            "lane_count":  8,
+            "note":       ""
+        },
+        r'[A-Z,0-9]{5}(?:CCXX:CC\w\w)':{
+            "machine":    "HiSeq X Ten",
+            "chemistry":  "V2/V2.5 Chemistry",
+            "lane_count":  8,
+            "note":       ""
+        },
+        r'[A-Z,0-9]{5}DR\w\w':{
+            "machine":    "Illumina NovaSeq 6000",
+            "chemistry":  "V1 Chemistry",
+            "lane_count":  2,
+            "note":       "S1/SP"
+        },
+        r'[A-Z,0-9]{5}DM\w\w':{
+            "machine":    "Illumina NovaSeq 6000",
+            "chemistry":  "V1 Chemistry",
+            "lane_count":  2,
+            "note":       "S2"
+        },
+        r'[A-Z,0-9]{5}DS\w\w':{
+            "machine":    "Illumina NovaSeq 6000",
+            "chemistry":  "V1 Chemistry",
+            "lane_count":  4,
+            "note":       "S4"
+        },
+        r'BNS417.*':{
+            "machine":    "Illumina iSeq 100",
+            "chemistry":  "V1",
+            "lane_count":  1,
+            "note":       "AKA Firefly"
+        },
+        r'[0-9]{9}-\w{5}':{
+            "machine":    "Illumina MiSeq",
+            "chemistry":  "V1/V2/V3 Chemistry",
+            "lane_count":  1,
+            "note":       ""
+        }
+    }
 
 # ======================
 # ***  SampleSheet   ***
@@ -833,7 +1234,7 @@ class SampleSheet(object):
             for row in self.rows:
                 if 'sample_name' in row:
                     del row['sample_name']
-        elif infile.endswith(('.txt','.txt.gz')):
+        elif infile.endswith(('.txt','.txt.gz','.tsv')):
             # our custom tab file format: sample, barcode_1, barcode_2, library_id_per_sample
             self.rows = []
             row_num = 0
@@ -870,6 +1271,7 @@ class SampleSheet(object):
 
         # escape sample, run, and library IDs to be filename-compatible
         for row in self.rows:
+            row['sample_original'] = row['sample']
             row['sample'] = util.file.string_to_file_name(row['sample'])
             row['library'] = util.file.string_to_file_name(row['library'])
             row['run'] = util.file.string_to_file_name(row['run'])
