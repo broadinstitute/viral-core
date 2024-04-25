@@ -192,7 +192,7 @@ jobs:
         uses: coverallsapp/github-action@v2
         with:
           file: coverage/coverage.xml
-          format: lcov
+          #format: lcov
 
   ## note: this test_docs job does not actually produce the output on readthedocs
   ## readthedocs does its own build trigger. this job exists simply to alert us
