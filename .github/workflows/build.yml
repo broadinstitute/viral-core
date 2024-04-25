@@ -187,9 +187,12 @@ jobs:
           mkdir coverage
       - name: test with docker
         run: |
-          docker run -e _JAVA_OPTIONS -e PYTEST_ADDOPTS -v `pwd`/coverage:/coverage -v `pwd`/test:/opt/viral-ngs/source/test --entrypoint /bin/bash $DOCKER_TAG -c 'set -e; cd /opt/viral-ngs/source; pytest -n $(nproc) test/unit; cp .coverage /coverage'
+          docker run -e _JAVA_OPTIONS -e PYTEST_ADDOPTS -v `pwd`/.coveragerc:/opt/viral-ngs/source/.coveragerc -v `pwd`/coverage:/coverage -v `pwd`/test:/opt/viral-ngs/source/test:rw --entrypoint /bin/bash $DOCKER_TAG -c 'set -e; cd /opt/viral-ngs/source; pytest -n $(nproc) test/unit; ls -lah; cp coverage.xml /coverage/coverage.xml;'
       - name: Run coveralls
         uses: coverallsapp/github-action@v2
+        with:
+          file: coverage/coverage.xml
+          format: lcov
 
   ## note: this test_docs job does not actually produce the output on readthedocs
   ## readthedocs does its own build trigger. this job exists simply to alert us
