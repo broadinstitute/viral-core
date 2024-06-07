@@ -187,7 +187,7 @@ jobs:
           mkdir coverage
       - name: test with docker
         run: |
-          docker run -e _JAVA_OPTIONS -e PYTEST_ADDOPTS -v `pwd`/coverage:/coverage -v `pwd`/test:/opt/viral-ngs/source/test --entrypoint /bin/bash $DOCKER_TAG -c 'set -e; cd /opt/viral-ngs/source; pytest -n $(nproc) test/unit; cp .coverage /coverage'
+          docker run -e _JAVA_OPTIONS -e PYTEST_ADDOPTS -v `pwd`/coverage:/coverage -v `pwd`/test:/opt/viral-ngs/source/test --entrypoint /bin/bash $DOCKER_TAG -c 'set -e; cd /opt/viral-ngs/source; pytest -n $(nproc) test/unit; cp pytest.xml /coverage'
       - name: Run coveralls
         uses: coverallsapp/github-action@v2
 
