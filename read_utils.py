@@ -1182,6 +1182,7 @@ def align_and_fix(
     JVMmemory=None,
     threads=None,
     skip_mark_dupes=False,
+    include_supplementary_mappings=False,
     gatk_path=None,
     novoalign_license_path=None
 ):
@@ -1246,15 +1247,22 @@ def align_and_fix(
             JVMmemory=JVMmemory
         )
         os.unlink(bam_aligned)
-
     samtools.index(bam_marked)
 
-    if samtools.isEmpty(bam_marked):
-        bam_realigned = bam_marked
+    if include_supplementary_mappings:
+        bam_to_be_realigned = bam_marked
+    else:
+        bam_to_be_realigned = mkstempfname('.rmsupplementalmaps.bam')
+        samtools.view(['-b', '-F', '2048'], bam_marked, bam_to_be_realigned)
+        os.unlink(bam_marked)
+    samtools.index(bam_to_be_realigned)
+
+    if samtools.isEmpty(bam_to_be_realigned):
+        bam_realigned = bam_to_be_realigned
     else:
         bam_realigned = mkstempfname('.realigned.bam')
-        tools.gatk.GATKTool(path=gatk_path).local_realign(bam_marked, refFastaCopy, bam_realigned, JVMmemory=JVMmemory, threads=threads)
-        os.unlink(bam_marked)
+        tools.gatk.GATKTool(path=gatk_path).local_realign(bam_to_be_realigned, refFastaCopy, bam_realigned, JVMmemory=JVMmemory, threads=threads)
+        os.unlink(bam_to_be_realigned)
 
     if outBamAll:
         shutil.copyfile(bam_realigned, outBamAll)
@@ -1297,6 +1305,10 @@ def parser_align_and_fix(parser=argparse.ArgumentParser()):
     parser.add_argument('--skipMarkDupes',
                         help='If specified, duplicate reads will not be marked in the resulting output file.',
                         dest="skip_mark_dupes",
+                        action='store_true')
+    parser.add_argument('--includeSupplementaryMappings',
+                        help='If specified, supplementary read mappings will be included.',
+                        dest="include_supplementary_mappings",
                         action='store_true')
     parser.add_argument(
         '--GATK_PATH',
