@@ -289,19 +289,19 @@ def test_available_cpu_count(monkeypatch_function_result):
     assert util.misc.available_cpu_count() == reported_cpu_count
 
     # cgroup v2 limited to 1 cpu
-    with monkeypatch_function_result(os.path.exists, "/sys/fs/cgroup/cgroup.controllers", patch_result=True), \
+    with monkeypatch_function_result(os.path.exists, "/sys/fs/cgroup/cgroup.controllers", patch_result=True, patch_module=os.path), \
          monkeypatch_function_result(util.file.slurp_file, '/sys/fs/cgroup/cpu.max', patch_result="100000 100000"):
         assert util.misc.available_cpu_count() == 1
 
     # cgroup v2 limited to 2 cpu
-    with monkeypatch_function_result(os.path.exists, "/sys/fs/cgroup/cgroup.controllers", patch_result=True), \
+    with monkeypatch_function_result(os.path.exists, "/sys/fs/cgroup/cgroup.controllers", patch_result=True, patch_module=os.path), \
          monkeypatch_function_result(util.file.slurp_file, '/sys/fs/cgroup/cpu.max', patch_result="200000 100000"):
         assert util.misc.available_cpu_count() == 2
 
     # cgroup v2 with no CPU limit imposed on cgroup
     # (fall back to /proc/self/status method, with limit imposed there):
     #   'Cpus_allowed:  d' = 0b1101 bitmask (meaning execution allowed on 3 CPUs)
-    with monkeypatch_function_result(os.path.exists, "/sys/fs/cgroup/cgroup.controllers", patch_result=True), \
+    with monkeypatch_function_result(os.path.exists, "/sys/fs/cgroup/cgroup.controllers", patch_result=True, patch_module=os.path), \
          monkeypatch_function_result(util.file.slurp_file, '/sys/fs/cgroup/cpu.max', patch_result="max 100000"), \
          monkeypatch_function_result(util.file.slurp_file, '/proc/self/status', patch_result='Cpus_allowed:  d'):
         assert util.misc.available_cpu_count() == 3
