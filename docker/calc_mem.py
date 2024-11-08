@@ -4,6 +4,7 @@
 Print result to stdout.
 """
 
+import math
 import argparse
 import sys
 import os
@@ -13,6 +14,8 @@ import os.path
 import multiprocessing
 
 import psutil
+
+#from util.misc import available_cpu_count # use the version of available_cpu_count() from viral-core/util/misc.py
 
 log = logging.getLogger(__name__)
 
@@ -48,9 +51,11 @@ def available_cpu_count():
 
         # cgroup CPU count determination (w/ v2) adapted from:
         #   https://github.com/conan-io/conan/blob/2.9.2/conan/tools/build/cpu.py#L31-L54
+        #
+        # see also:
+        #   https://docs.kernel.org/scheduler/sched-bwc.html
+
         # This is necessary to determine docker cpu_count
-        cfs_quota_us = int(_load("/sys/fs/cgroup/cpu/cpu.cfs_quota_us"))
-        cfs_period_us = int(_load("/sys/fs/cgroup/cpu/cpu.cfs_period_us"))
         cfs_quota_us = cfs_period_us = 0
         # cgroup v2
         if os.path.exists("/sys/fs/cgroup/cgroup.controllers"):

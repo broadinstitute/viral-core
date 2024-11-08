@@ -1,4 +1,5 @@
 '''A few miscellaneous tools. '''
+import math
 import collections
 import contextlib
 import itertools, functools, operator
@@ -334,21 +335,18 @@ def available_cpu_count():
 
     cgroup_cpus = MAX_INT32
     try:
-        def _load(path, encoding="utf-8"):
-            """ Loads a file content """
-            with open(path, 'r', encoding=encoding, newline="") as handle:
-                tmp = handle.read()
-            return tmp
-
         # cgroup CPU count determination (w/ v2) adapted from:
         #   https://github.com/conan-io/conan/blob/2.9.2/conan/tools/build/cpu.py#L31-L54
+        #
+        # see also:
+        #   https://docs.kernel.org/scheduler/sched-bwc.html
+
         # This is necessary to determine docker cpu_count
-        cfs_quota_us = int(_load("/sys/fs/cgroup/cpu/cpu.cfs_quota_us"))
-        cfs_period_us = int(_load("/sys/fs/cgroup/cpu/cpu.cfs_period_us"))
         cfs_quota_us = cfs_period_us = 0
         # cgroup v2
         if os.path.exists("/sys/fs/cgroup/cgroup.controllers"):
-            cpu_max = _load("/sys/fs/cgroup/cpu.max").split()
+            log.debug("cgroup v2 detected")
+            cpu_max = util.file.slurp_file("/sys/fs/cgroup/cpu.max").split()
             if cpu_max[0] != "max":
                 if len(cpu_max) == 1:
                     cfs_quota_us, cfs_period_us = int(cpu_max[0]), 100_000
@@ -356,8 +354,9 @@ def available_cpu_count():
                     cfs_quota_us, cfs_period_us = map(int, cpu_max)
         # cgroup v1
         else:
-            cfs_quota_us = int(_load("/sys/fs/cgroup/cpu/cpu.cfs_quota_us"))
-            cfs_period_us = int(_load("/sys/fs/cgroup/cpu/cpu.cfs_period_us"))
+            log.debug("cgroup v1 detected")
+            cfs_quota_us = int(util.file.slurp_file("/sys/fs/cgroup/cpu/cpu.cfs_quota_us"))
+            cfs_period_us = int(util.file.slurp_file("/sys/fs/cgroup/cpu/cpu.cfs_period_us"))
 
         log.debug('cfs_quota_us %s, cfs_period_us %s', cfs_quota_us, cfs_period_us)
         if cfs_quota_us > 0 and cfs_period_us > 0:
@@ -367,7 +366,7 @@ def available_cpu_count():
 
     proc_cpus = MAX_INT32
     try:
-        m = re.search(r'(?m)^Cpus_allowed:\s*(.*)$', _load('/proc/self/status'))
+        m = re.search(r'(?m)^Cpus_allowed:\s*(.*)$', util.file.slurp_file('/proc/self/status'))
         if m:
             res = bin(int(m.group(1).replace(',', ''), 16)).count('1')
             if res > 0:
